@@ -14,7 +14,7 @@ Reachable from all three interfaces, exactly like lib/workchain_yaml.py:
 
 It is stdlib + ffmpeg only (no PyYAML, no numpy) so it works on a bare system — the
 same light path the engine itself relies on. (One post-condition, `acoustic_roundtrip`,
-additionally shells to the `@lufs/audioqr` decoder as its domain ground-truth tool —
+additionally shells to the `@lufs-audio/audioqr` decoder as its domain ground-truth tool —
 exactly as the loudness checks shell to ffmpeg — but ONLY for components that declare
 it; the rest of Workchain stays stdlib+ffmpeg.) The contract is DECLARED in each
 component's step.yaml under `verify:`; this file only implements the reusable
@@ -429,7 +429,7 @@ def check_stems_recombine(pc, ctx, comp, step_yaml, output_paths):
 # encode — it does NOT trust the component's own sidecar. This is the anti-"exit-0-but-
 # wrong" gate for acoustic_encode, and the deliberate opposite of a component that
 # measures its output but never compares it to the target. Domain ground-truth tool =
-# the @lufs/audioqr decoder (resolved via WORKCHAIN_AUDIOQR_BIN or `audioqr` on PATH).
+# the @lufs-audio/audioqr decoder (resolved via WORKCHAIN_AUDIOQR_BIN or `audioqr` on PATH).
 # ─────────────────────────────────────────────────────────────────────────────
 
 def resolve_target_str(ctx, comp, step_yaml, param):
@@ -468,7 +468,7 @@ def check_acoustic_roundtrip(pc, ctx, comp, step_yaml, output_paths):
     binpath = _resolve_audioqr()
     measured["decoder"] = binpath
     if not binpath:
-        return (False, "audioqr decoder not found (set WORKCHAIN_AUDIOQR_BIN or install @lufs/audioqr)", measured)
+        return (False, "audioqr decoder not found (set WORKCHAIN_AUDIOQR_BIN or install @lufs-audio/audioqr)", measured)
     try:
         proc = subprocess.run([binpath, "decode", path, "--json"],
                               capture_output=True, text=True, timeout=120)
