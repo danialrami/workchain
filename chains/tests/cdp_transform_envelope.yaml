@@ -1,0 +1,10 @@
+name: "Test: CDP Transform with a moving parameter"
+description: "Drive a parameter with a breakpoint envelope instead of a constant, sweeping blur from 1 to 80 windows. Proves the envelope is staged, applied, and asserted."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: blur.blur
+      values_json: '{"windows": 40}'
+      values_brk_json: '{"windows": "0 1\n2 80"}'

@@ -9,6 +9,7 @@
 #
 #   ./tools/release-check.sh              # light path (no venv, no model weights)
 #   ./tools/release-check.sh --heavy      # also exercise heavy components
+#   ./tools/release-check.sh --cdp        # also exercise the CDP components (needs cdp-wasm)
 #   ./tools/release-check.sh --keep       # keep the work dir for inspection
 #
 # Exit 0 only when every gate passed. Any failure is fatal and named.
@@ -19,10 +20,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 HEAVY=0
+CDP=0
 KEEP=0
 for a in "$@"; do
     case "$a" in
         --heavy) HEAVY=1 ;;
+        --cdp)   CDP=1 ;;
         --keep)  KEEP=1 ;;
         -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
         *) echo "unknown option: $a"; exit 2 ;;
@@ -254,6 +257,19 @@ if [[ $HEAVY -eq 1 ]]; then
     for c in chains/tests/stem_separation*.yaml; do run_chain "$c" mix.wav; done
 else
     skip "heavy chains (pass --heavy; needs a venv and model weights — see components/stem_separation/README.md)"
+fi
+
+# ── 6b. CDP components ──────────────────────────────────────────────────────────
+# Behind a flag, like the heavy path: cdp_transform needs the cdp-wasm npm package, which a bare
+# CI runner does not have. Its preflight fails honestly when the package is absent, so running it
+# unconditionally would redden CI for a missing optional dependency rather than for a defect.
+say "6b. CDP components"
+if [[ $CDP -eq 1 ]]; then
+    for c in chains/tests/cdp_transform*.yaml chains/cdp-*.yaml; do
+        [[ -f "$c" ]] && run_chain "$c" tone.wav
+    done
+else
+    skip "CDP chains (pass --cdp; needs: npm install cdp-wasm, or set CDP_WASM_DIR)"
 fi
 
 # ── 7. registry + unit tests ────────────────────────────────────────────────────

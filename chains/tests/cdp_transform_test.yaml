@@ -1,0 +1,9 @@
+name: "Test: CDP Transform"
+description: "Run one spectral CDP effect under contract. Proves the wrapper renders real audio, records the measurement, and is byte-deterministic."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: blur.blur
+      values_json: '{"windows": 40}'

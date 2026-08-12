@@ -1,0 +1,21 @@
+name: "CDP: Spectral Wash"
+description: "Turn a short sound into a long spectral wash, then bring it to a usable level. Stretch in the frequency domain, smear the analysis frames, and normalize. The order matters musically: stretch then blur smears an already-long sound, where blur then stretch stretches the smear."
+version: "1.0"
+
+globals:
+  lufs_target: -18
+
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: stretch.time
+      values_json: '{"factor": 4}'
+      min_peak_dbfs: -60
+
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -18
+      two_pass: true
+      true_peak: -1.5
