@@ -4,6 +4,7 @@
   "description": "Audio workchain project dependencies",
   "private": true,
   "dependencies": {
+    "cdp-wasm": "^0.5.3",
     "jdenticon": "^3.3.0"
   },
   "scripts": {
