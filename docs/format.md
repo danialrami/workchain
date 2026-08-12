@@ -757,4 +757,4 @@ verify:
 
 ---
 
-*This document describes the format as implemented in branch `ciani/port-engine` of `lufs-audio/workchain`. The format is declared unencumbered; third-party implementations are welcome. Implementations should prefer the Python path (`lib/workchain_yaml.py`) as the authoritative parser specification. The Bash components are provided for runtime portability, not as the format reference.*
+*The format is declared unencumbered; third-party implementations are welcome. Implementations should prefer the Python path (`lib/workchain_yaml.py`) as the authoritative parser specification. The Bash components are provided for runtime portability, not as the format reference.*

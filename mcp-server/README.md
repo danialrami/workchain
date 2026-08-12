@@ -69,5 +69,3 @@ registry:
 ```
 
 ## Status
-
-Part of `kardashev/fix-agent-workflows` branch.

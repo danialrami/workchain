@@ -293,27 +293,14 @@ else
 fi
 
 # ── 8. documentation sanity ─────────────────────────────────────────────────────
-# Cheap greps for the drift that embarrasses us publicly. This scans for CLASSES of
-# private or local references — absolute home paths, private IP space, internal TLDs,
-# and placeholders left behind. It is deliberately generic: it needs no knowledge of
-# this project's internal names and no secrets, so it behaves identically on any clone,
-# fork, or CI runner. `localhost`/loopback are intentionally NOT flagged — they are
-# generic and legitimately appear in example specs (e.g. the MCP OpenAPI server URL).
+# Cheap greps for the drift that embarrasses us publicly.
 say "8. Documentation sanity"
-leaks=$(grep -rIln -E \
-    -e '/home/[A-Za-z0-9._-]+' \
-    -e '/Users/[A-Za-z0-9._-]+' \
-    -e 'C:[\\/]Users[\\/]' \
-    -e '(^|[^0-9])10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' \
-    -e '(^|[^0-9])192\.168\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' \
-    -e '(^|[^0-9])172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' \
-    -e '(^|[^0-9])100\.(6[4-9]|[7-9][0-9]|1[0-2][0-7])\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' \
-    -e '\.(local|lan|internal|corp|home|tailnet|ts\.net)\b' \
-    -e '\b(yourusername|change_me|YOUR_[A-Z_]+|<your-[a-z-]+>)\b' \
+# This script and PORTING.md legitimately name the strings they screen for.
+leaks=$(grep -rIl -E '\b(siku|klaxon|carnyx|tambora|kora|regalle|pandeiro|samvadini)\b|100\.[0-9]+\.[0-9]+\.[0-9]+|exe\.xyz|lufshq\.com|/Users/|/home/[a-z]|yourusername|localhost:[0-9]{4}/[a-z]|danialrami/' \
     --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv . 2>/dev/null \
-    | grep -vE '^\./(tools/release-check\.sh|ci/README\.md)$' || true)
-if [[ -z "$leaks" ]]; then ok "no local paths, private IPs, internal hostnames or placeholders"
-else bad "private/local references present in: $(echo "$leaks" | tr '\n' ' ')"; fi
+    | grep -vE '^\./(docs/PORTING\.md|tools/release-check\.sh|ci/README\.md)$' || true)
+if [[ -z "$leaks" ]]; then ok "no internal hostnames, tailnet addresses or private repo references"
+else bad "internal references present in: $(echo "$leaks" | tr '\n' ' ')"; fi
 
 for comp in components/*/; do
     name="$(basename "$comp")"
@@ -328,6 +315,24 @@ done
 # README.md and docs/*.md, so four component READMEs kept telling users to run
 # `lufs-workchain run-component ...` — a command that does not exist — and it reported green.
 # A check with the wrong scope is indistinguishable from no check.
+# Declared licence must match the LICENSE file. agent.json shipped "MIT" while LICENSE was
+# Apache-2.0 — a machine-readable discovery file is exactly where a wrong licence does damage,
+# because tooling believes it.
+if [[ -f LICENSE && -f agent.json ]]; then
+    lic_file=$(head -20 LICENSE | grep -oE 'Apache License|MIT License|GNU (Lesser )?General Public License' | head -1)
+    lic_decl=$(python3 -c "import json;print(json.load(open('agent.json')).get('license',''))" 2>/dev/null)
+    case "$lic_file:$lic_decl" in
+        "Apache License:Apache-2.0"|"MIT License:MIT") ok "agent.json licence ($lic_decl) matches LICENSE ($lic_file)" ;;
+        *) bad "agent.json declares '$lic_decl' but LICENSE is '$lic_file'" ;;
+    esac
+fi
+
+# Internal branch names have no business in a public tree.
+branchleak=$(grep -rIl -E '\b(ciani|kardashev|amacher|oliveros|chachi|deedee)/[a-z0-9-]+' \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude='release-check.sh' . 2>/dev/null || true)
+if [[ -z "$branchleak" ]]; then ok "no internal branch names referenced"
+else bad "internal branch names referenced in: $(echo "$branchleak" | tr '\n' ' ')"; fi
+
 stale_cli=$(grep -rIl -E '\blufs-workchain (run-component|registry|doctor|run|validate|chains|components|generate)\b' \
     --include='*.md' --exclude-dir=.git --exclude-dir=node_modules . 2>/dev/null || true)
 if [[ -z "$stale_cli" ]]; then

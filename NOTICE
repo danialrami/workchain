@@ -20,12 +20,8 @@ idea, which we did not originate.
 Third-party components
 
 Components that wrap third-party software carry their obligations in their own
-README. At the time of writing:
+README. No component in this repository currently bundles or links third-party
+audio code, so there are no additional attribution obligations at this time.
 
-  components/cdp_transform/ wraps cdp-wasm (https://github.com/cdp-wasm-suite/cdp-wasm),
-  Copyright (c) 2026 Oliver Larkin, licensed MIT for its JavaScript API and
-  LGPL-2.1-or-later for the WebAssembly modules compiled from the CDP8 sources
-  (Copyright (c) 1983-2023 Trevor Wishart, Richard Dobson, Martin Atkins and
-  Composers Desktop Project Ltd). cdp-wasm is consumed as a dynamically loaded
-  npm dependency and is not statically linked. It is not vendored into this
-  repository.
+If that changes, the obligation is recorded here and in the component's own
+README before the component ships.
