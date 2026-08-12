@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLI_PATH = resolve(__dirname, '..', 'bin', 'lufs-workchain.js');
+const CLI_PATH = resolve(__dirname, '..', 'bin', 'workchain.js');
 const WORKCHAIN_ROOT = resolve(__dirname, '..', '..');
 
 // Canonical audio fixture — GENERATED deterministically with ffmpeg at setup, not committed
@@ -147,6 +147,31 @@ describe('CLI Commands', () => {
         rmSync(chain, { force: true });
         rmSync(compDir, { recursive: true, force: true });
       }
+    }, 30000);
+  });
+
+  describe('dry-run plan preview (valid even before the input exists)', () => {
+    it('previews a plan for a NONEXISTENT input file (exit 0, status dry_run)', async () => {
+      const missing = join(tempDir, 'not-yet-recorded.wav');
+      expect(existsSync(missing)).toBe(false);
+      const { stdout, exitCode } = await cli(['run', 'deliverable-voice', missing, '--dry-run', '--json']);
+      expect(exitCode).toBe(0);
+      const result = JSON.parse(stdout);
+      expect(result.status).toBe('dry_run');
+      expect(result.step_count).toBeGreaterThan(0);
+      expect(result.steps.map((s) => s.name)).toEqual(expect.arrayContaining(['format_conversion', 'normalization', 'audio_benchmark']));
+    }, 30000);
+
+    it('still previews with a valid existing input', async () => {
+      const { stdout, exitCode } = await cli(['run', 'deliverable-voice', FIXTURE, '--dry-run', '--json']);
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout).status).toBe('dry_run');
+    }, 30000);
+
+    it('a REAL run still requires the input file (exit 2)', async () => {
+      const missing = join(tempDir, 'definitely-missing.wav');
+      const { exitCode } = await cli(['run', 'deliverable-voice', missing]);
+      expect(exitCode).toBe(2);
     }, 30000);
   });
 

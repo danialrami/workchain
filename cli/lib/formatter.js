@@ -32,6 +32,19 @@ function formatHuman(result) {
 
   if (result.status === 'error') {
     lines.push(chalk.red(`\n  ✖ ${result.message}`));
+    // Surface the failed checks — the measured facts that stopped the run. These are
+    // previously only reachable via --verbose or by digging into context.json, which
+    // made the default failure output near-silent for the exact event the tool exists
+    // to expose.
+    if (result.failures && result.failures.length) {
+      for (const f of result.failures) {
+        const n = f.failed_checks.length;
+        lines.push(`    ${chalk.bold(f.step)} — ${f.tier} (${n} of ${f.total_checks || n} checks failed)`);
+        for (const c of f.failed_checks) {
+          lines.push(chalk.red(`      ✗ ${c.name}: ${c.detail}`));
+        }
+      }
+    }
     if (result.details) {
       for (const [key, value] of Object.entries(result.details)) {
         if (typeof value === 'object') continue;

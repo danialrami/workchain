@@ -18,16 +18,21 @@ export async function runCommand(chain, input, options, command) {
 
   try {
     const inputPath = resolve(input);
-    validateInputFile(inputPath);
 
     const workchainRoot = resolveWorkchainRoot();
     const chainFile = resolveChainFile(chain, workchainRoot);
 
     if (options.dryRun) {
+      // A dry run is a plan preview — it never touches the input, so it is valid even
+      // before the input file exists. An agent can preview the plan first and check
+      // the steps, and only a real `run` demands a real file (validated below).
       const plan = buildDryRunPlan(chainFile, inputPath, workchainRoot);
       console.log(formatResult(plan, { json }));
       return;
     }
+
+    // Real runs require a real, supported input file.
+    validateInputFile(inputPath);
 
     const outputDir = options.output
       ? resolve(options.output)
@@ -44,13 +49,25 @@ export async function runCommand(chain, input, options, command) {
     });
 
     const progressParser = createProgressParser({ quiet: !verbose });
-    subprocess.stdout.pipe(progressParser).pipe(process.stderr);
-    // In default (agent) mode, stderr is a clean NDJSON progress stream. Raw engine
-    // diagnostics are only forwarded with --verbose; failures still surface in the
-    // final JSON result on stdout. (review Bug 9)
+    // Engine progress markers (running/completed) live on stdout; failure diagnostics
+    // live on stderr. Parse stdout for the happy path and stderr for failures.
+    subprocess.stdout.pipe(progressParser).pipe(process.stderr, { end: false });
     if (verbose) {
-      subprocess.stderr.pipe(process.stderr);
+      // Human mode: forward raw engine stderr so a person can read the full log.
+      subprocess.stderr.pipe(process.stderr, { end: false });
+    } else {
+      // Agent mode: keep stderr a clean NDJSON stream, but still parse it so a step
+      // FAILURE gets a structured `failed` event (previously stderr was dropped
+      // entirely — a failure read as a `running` event then dead air). Consuming
+      // stderr also stops a full pipe buffer from ever blocking the child.
+      const errorParser = createProgressParser({ quiet: true });
+      subprocess.stderr.pipe(errorParser).pipe(process.stderr, { end: false });
+      // The progress stream is best-effort; the authoritative failure detail always
+      // comes from context.json via buildResult. A parser hiccup must never crash the
+      // run — swallow stream errors so the exit code and summary still surface.
+      errorParser.on('error', () => {});
     }
+    progressParser.on('error', () => {});
 
     const { exitCode } = await subprocess;
 
@@ -137,6 +154,28 @@ function buildDryRunPlan(chainFile, inputPath, workchainRoot) {
   return plan;
 }
 
+/**
+ * Extract the verifier's failed checks from context.json for every failed step.
+ * These are the measured facts that made the run stop (e.g. "measured -8.85 LUFS vs
+ * target -5.0 - off by 3.85 LU") — the whole point of the tool is to surface them.
+ */
+function collectFailures(contextData) {
+  const failures = [];
+  const steps = (contextData && contextData.steps) || {};
+  for (const [name, step] of Object.entries(steps)) {
+    if (step && step.status === 'failed') {
+      const v = step.verification || {};
+      failures.push({
+        step: name,
+        tier: v.tier || 'unverified',
+        total_checks: Array.isArray(v.checks) ? v.checks.length : 0,
+        failed_checks: (v.failures || []).map((f) => ({ name: f.name, detail: f.detail })),
+      });
+    }
+  }
+  return failures;
+}
+
 function buildResult(contextData, exitCode, inputPath, chain, outputDir, durationMs, reportPath) {
   const inputParts = inputPath.split(/[/\\]/).pop() || inputPath;
   const lastDot = inputParts.lastIndexOf('.');
@@ -165,11 +204,19 @@ function buildResult(contextData, exitCode, inputPath, chain, outputDir, duratio
   }
 
   if (contextData && exitCode !== 0) {
+    const failures = collectFailures(contextData);
+    const failedStep = failures[0]?.step;
     return {
       status: 'error',
       command: 'run',
       code: 1,
-      message: `Chain execution failed with exit code ${exitCode}`,
+      // Name the lie: say which step failed and why, not just "exit code 1".
+      message: failedStep
+        ? `Chain halted: step '${failedStep}' failed verification`
+        : `Chain execution failed with exit code ${exitCode}`,
+      chain,
+      input_file: inputPath,
+      failures,
       details: {
         chain,
         input_file: inputPath,

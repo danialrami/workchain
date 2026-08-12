@@ -18,7 +18,7 @@ info:
     Two CLI-only operations — `doctor` (preflight every component) and `registry
     generate|check` (the generated components/index.json with per-component definition
     hashes and tier) — are not exposed as MCP tools here; invoke them via the Node CLI
-    (`lufs-workchain doctor`, `lufs-workchain registry check`) if an agent needs install
+    (`workchain doctor`, `workchain registry check`) if an agent needs install
     health or registry freshness rather than per-run execution.
   license:
     name: MIT

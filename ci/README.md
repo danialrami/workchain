@@ -45,9 +45,9 @@ regressions are caught by `validate all --strict` and `registry check`.
 ```bash
 sudo apt-get install -y ffmpeg
 cd cli && npm install && npm test
-node cli/bin/lufs-workchain.js registry check
-node cli/bin/lufs-workchain.js validate all --strict
-node cli/bin/lufs-workchain.js doctor          # informational; stem_separation may fail
+node cli/bin/workchain.js registry check
+node cli/bin/workchain.js validate all --strict
+node cli/bin/workchain.js doctor          # informational; stem_separation may fail
 bash tools/release-check.sh                    # if the file exists
 ```
 

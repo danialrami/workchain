@@ -15,7 +15,7 @@
   "author": "LUFS Audio",
   "type": "module",
   "bin": {
-    "workchain": "./bin/lufs-workchain.js"
+    "workchain": "./bin/workchain.js"
   },
   "engines": {
     "node": ">=18.0.0"

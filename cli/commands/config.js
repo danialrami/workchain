@@ -12,7 +12,7 @@ export async function configCommand(subcommand, key, value, options, command) {
     switch (subcommand) {
       case 'set':
         if (!key || value === undefined) {
-          throw new CliError(2, 'Usage: lufs-workchain config set <key> <value>');
+          throw new CliError(2, 'Usage: workchain config set <key> <value>');
         }
         if (!VALID_KEYS.includes(key)) {
           throw new CliError(2, `Invalid config key: "${key}". Valid keys: ${VALID_KEYS.join(', ')}`);
@@ -27,7 +27,7 @@ export async function configCommand(subcommand, key, value, options, command) {
 
       case 'get':
         if (!key) {
-          throw new CliError(2, 'Usage: lufs-workchain config get <key>');
+          throw new CliError(2, 'Usage: workchain config get <key>');
         }
         const val = getConfig(key);
         if (json) {
@@ -56,7 +56,7 @@ export async function configCommand(subcommand, key, value, options, command) {
 
       case 'delete':
         if (!key) {
-          throw new CliError(2, 'Usage: lufs-workchain config delete <key>');
+          throw new CliError(2, 'Usage: workchain config delete <key>');
         }
         deleteConfig(key);
         if (!json) console.log(`Deleted config key: ${key}`);
@@ -68,7 +68,7 @@ export async function configCommand(subcommand, key, value, options, command) {
         break;
 
       default:
-        console.log('Usage: lufs-workchain config <subcommand> [key] [value]');
+        console.log('Usage: workchain config <subcommand> [key] [value]');
         console.log('');
         console.log('Subcommands:');
         console.log('  set <key> <value>    Set a config value');

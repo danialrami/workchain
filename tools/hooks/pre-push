@@ -44,7 +44,7 @@ cat >&2 <<'MSG'
 
     Fix:
 
-      node cli/bin/lufs-workchain.js registry generate
+      node cli/bin/workchain.js registry generate
       git add components/index.json
       git commit -m "chore(registry): regenerate index"
       git push

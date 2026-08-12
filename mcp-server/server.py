@@ -17,7 +17,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stderr
 )
-logger = logging.getLogger('lufs-workchain-mcp')
+logger = logging.getLogger('workchain-mcp')
 
 try:
     from fastmcp import FastMCP
@@ -32,13 +32,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 import workchain_yaml as wy
 
 # Initialize MCP server
-mcp = FastMCP("lufs-workchain")
+mcp = FastMCP("workchain")
 
 # Resolve workchain root (parent directory of mcp-server/)
 WORKCHAIN_ROOT = Path(__file__).parent.parent
 COMPONENTS_DIR = WORKCHAIN_ROOT / "components"
 CHAINS_DIR = WORKCHAIN_ROOT / "chains"
-CLI_PATH = WORKCHAIN_ROOT / "cli" / "bin" / "lufs-workchain.js"
+CLI_PATH = WORKCHAIN_ROOT / "cli" / "bin" / "workchain.js"  # internal filename; installed as `workchain`
 
 
 def _resolve_chain_path(chain_file: str):

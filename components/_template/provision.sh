@@ -1,7 +1,7 @@
 #!/bin/bash
 # Optional provision recipe — make this component's declared `requirements:` present.
 # Idempotent (safe to re-run). Referenced from step.yaml (requirements.<class>.provision) and
-# run by `lufs-workchain add` / `doctor`. A light component (ffmpeg only) needs nothing here;
+# run by `workchain add` / `doctor`. A light component (ffmpeg only) needs nothing here;
 # a heavy component creates its venv / installs packages / downloads models below.
 set -euo pipefail
 COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

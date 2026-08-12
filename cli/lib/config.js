@@ -5,7 +5,7 @@ const schema = {
   workchainRoot: {
     type: 'string',
     default: '',
-    description: 'Path to lufs-workchain repository root.',
+    description: 'Path to workchain repository root.',
   },
   server: {
     type: 'string',
@@ -38,7 +38,7 @@ const ENV_MAP = {
 };
 
 function createStore() {
-  return new Conf({ projectName: 'lufs-workchain', schema });
+  return new Conf({ projectName: 'workchain', schema });
 }
 
 export function loadConfig() {

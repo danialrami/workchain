@@ -10,8 +10,8 @@ const SUPPORTED_AUDIO_EXTENSIONS = ['mp3', 'wav', 'aiff', 'aif', 'flac', 'm4a', 
 
 /**
  * Run a component standalone (outside of a chain)
- * Usage: lufs-workchain run-component <component> <input> [options]
- * Batch mode: lufs-workchain run-component <component> <directory> [options]
+ * Usage: workchain run-component <component> <input> [options]
+ * Batch mode: workchain run-component <component> <directory> [options]
  */
 export async function runComponentCommand(componentName, input, options, command) {
   const globalOpts = command.parent?.opts() || {};

@@ -266,7 +266,7 @@ say "7. Registry and unit tests"
 if python3 lib/workchain_registry.py check . >/dev/null 2>&1; then
     ok "components/index.json is current"
 else
-    bad "components/index.json is STALE — run: node cli/bin/lufs-workchain.js registry generate"
+    bad "components/index.json is STALE — run: node cli/bin/workchain.js registry generate"
 fi
 
 # Cross-check that the two entry points agree. Compare EXIT CODES: when the index is
@@ -275,7 +275,7 @@ fi
 # delegates to lib/workchain_registry.py, so any difference here is a wiring fault.
 if [[ -d cli/node_modules ]]; then
     python3 lib/workchain_registry.py check . >/dev/null 2>&1; py_reg=$?
-    node cli/bin/lufs-workchain.js registry check >/dev/null 2>&1; node_reg=$?
+    node cli/bin/workchain.js registry check >/dev/null 2>&1; node_reg=$?
     if [[ $py_reg -eq $node_reg ]]; then
         ok "Node CLI and Python registry check agree (both rc=$py_reg)"
     else

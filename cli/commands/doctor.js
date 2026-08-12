@@ -3,7 +3,7 @@ import { join } from 'path';
 import { resolveWorkchainRoot } from '../lib/workchain.js';
 
 /**
- * `lufs-workchain doctor` — run the inbound dependency preflight for every component and
+ * `workchain doctor` — run the inbound dependency preflight for every component and
  * report what's provisioned vs missing. The health check for an install; also how heavy
  * component tests self-skip. Delegates to lib/workchain_registry.py (single source of truth).
  */

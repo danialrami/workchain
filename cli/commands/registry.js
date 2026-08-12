@@ -4,7 +4,7 @@ import { resolveWorkchainRoot } from '../lib/workchain.js';
 import { CliError } from '../lib/utils.js';
 
 /**
- * `lufs-workchain registry <generate|check>` — the generated component index.
+ * `workchain registry <generate|check>` — the generated component index.
  *   generate → (re)write components/index.json (manifests + tier + definition hash)
  *   check    → exit 1 if components/index.json is missing or stale (for CI)
  * The index is GENERATED, never hand-edited. Delegates to lib/workchain_registry.py.

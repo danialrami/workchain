@@ -29,7 +29,7 @@ export function resolveWorkchainRoot() {
     }
     throw new CliError(3,
       `Config workchainRoot points to a directory without ${ENGINE_MARKER}: ${root}\n` +
-      `Fix with: lufs-workchain config set workchainRoot /path/to/lufs-workchain`
+      `Fix with: workchain config set workchainRoot /path/to/workchain`
     );
   }
 
@@ -44,18 +44,21 @@ export function resolveWorkchainRoot() {
 
   throw new CliError(3,
     'Workchain root not found.\n' +
-    '  Set it with: lufs-workchain config set workchainRoot /path/to/lufs-workchain\n' +
-    '  Or set env:   export LUFS_WORKCHAIN_ROOT=/path/to/lufs-workchain'
+    '  Set it with: workchain config set workchainRoot /path/to/workchain\n' +
+    '  Or set env:   export LUFS_WORKCHAIN_ROOT=/path/to/workchain'
   );
 }
 
 export function resolveChainFile(chainName, workchainRoot) {
-  if (chainName.includes('/')) {
-    const resolved = resolve(chainName);
-    if (existsSync(resolved)) return resolved;
-    throw new CliError(2, `Chain file not found: ${resolved}`);
-  }
+  // 1. If the name is already a path to an existing file (e.g. ./chain.yaml or an
+  //    absolute path), use it as-is.
+  const asPath = resolve(chainName);
+  if (existsSync(asPath)) return asPath;
 
+  // 2. Otherwise resolve against chains/, including nested subdirectory names such as
+  //    `tests/normalization_offtarget` that `chains` lists but that are NOT paths.
+  //    Previously any slash was treated as a filesystem path, so the names the tool
+  //    printed as available could not be run as written.
   const candidates = [
     join(workchainRoot, 'chains', `${chainName}.yaml`),
     join(workchainRoot, 'chains', 'examples', `${chainName}.yaml`),
@@ -70,7 +73,7 @@ export function resolveChainFile(chainName, workchainRoot) {
     `Chain not found: "${chainName}"\n` +
     `  Searched in:\n` +
     candidates.map(c => `    - ${c}`).join('\n') + '\n' +
-    `  Run "lufs-workchain chains" to see available chains.`
+    `  Run "workchain chains" to see available chains.`
   );
 }
 

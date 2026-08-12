@@ -22,7 +22,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
 const program = new Command();
 
 program
-  .name('lufs-workchain')
+  .name('workchain')
   .description('LUFS audio processing workchain — agent-first CLI')
   .version(pkg.version)
   .option('--json', 'Output raw JSON (machine mode)')
@@ -31,10 +31,10 @@ program
 
 program.addHelpText('after', `
 Examples:
-  $ lufs-workchain run deliverable-voice song.wav -o ./output
-  $ lufs-workchain chains --json
-  $ lufs-workchain component normalization --json
-  $ lufs-workchain config set workchainRoot /path/to/repo
+  $ workchain run deliverable-voice song.wav -o ./output
+  $ workchain chains --json
+  $ workchain component normalization --json
+  $ workchain config set workchainRoot /path/to/repo
 
 Exit Codes:
   0  Success
@@ -56,13 +56,13 @@ const runCmd = program
 
 runCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain run deliverable-voice song.wav -o ./output
-  $ lufs-workchain run deliverable-voice song.wav --dry-run
-  $ lufs-workchain run deliverable-voice song.wav --dry-run --json
-  $ lufs-workchain run deliverable-voice song.wav -o ./output --json
-  $ lufs-workchain run ./my-chain.yaml /path/to/input.mp3 -o /tmp/out
-  $ lufs-workchain run deliverable-voice long_song.wav --timeout 7200
-  $ lufs-workchain run deliverable-voice song.wav --report
+  $ workchain run deliverable-voice song.wav -o ./output
+  $ workchain run deliverable-voice song.wav --dry-run
+  $ workchain run deliverable-voice song.wav --dry-run --json
+  $ workchain run deliverable-voice song.wav -o ./output --json
+  $ workchain run ./my-chain.yaml /path/to/input.mp3 -o /tmp/out
+  $ workchain run deliverable-voice long_song.wav --timeout 7200
+  $ workchain run deliverable-voice song.wav --report
 
 Exit Codes:
   0  Chain completed successfully (or dry-run plan generated)
@@ -85,14 +85,14 @@ const runComponentCmd = program
 
 runComponentCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain run-component normalization input.wav -o ./output
-  $ lufs-workchain run-component normalization input.wav --param.target_lufs=-14
-  $ lufs-workchain run-component audio_benchmark input.wav --json
-  $ lufs-workchain run-component canvas_01 input.wav --output ./assets
+  $ workchain run-component normalization input.wav -o ./output
+  $ workchain run-component normalization input.wav --params-json '{"target_lufs":-14}'
+  $ workchain run-component audio_benchmark input.wav --json
+  $ workchain run-component canvas_01 input.wav --output ./assets
 
 Batch mode (process directory of audio files):
-  $ lufs-workchain run-component audio_benchmark /path/to/audio/folder --json
-  $ lufs-workchain run-component normalization /path/to/audio/folder -r --extensions mp3,wav
+  $ workchain run-component audio_benchmark /path/to/audio/folder --json
+  $ workchain run-component normalization /path/to/audio/folder -r --extensions mp3,wav
 
 Exit Codes:
   0  Component completed successfully
@@ -109,9 +109,9 @@ const chainsCmd = program
 
 chainsCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain chains
-  $ lufs-workchain chains --json
-  $ lufs-workchain chains --filter astro
+  $ workchain chains
+  $ workchain chains --json
+  $ workchain chains --filter astro
 
 Exit Codes:
   0  Success (may return empty array)
@@ -127,8 +127,8 @@ const chainCmd = program
 
 chainCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain chain deliverable-voice
-  $ lufs-workchain chain deliverable-voice --json
+  $ workchain chain deliverable-voice
+  $ workchain chain deliverable-voice --json
 
 Exit Codes:
   0  Success
@@ -144,9 +144,9 @@ const componentsCmd = program
 
 componentsCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain components
-  $ lufs-workchain components --json
-  $ lufs-workchain components --filter norm
+  $ workchain components
+  $ workchain components --json
+  $ workchain components --filter norm
 
 Exit Codes:
   0  Success (may return empty array)
@@ -162,9 +162,9 @@ const componentCmd = program
 
 componentCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain component normalization
-  $ lufs-workchain component normalization --json
-  $ lufs-workchain component artwork_01 --json
+  $ workchain component normalization
+  $ workchain component normalization --json
+  $ workchain component artwork_01 --json
 
 Exit Codes:
   0  Success
@@ -189,17 +189,17 @@ Subcommands:
   reset                Reset all config to defaults
 
 Valid Keys:
-  workchainRoot        Path to lufs-workchain repository
+  workchainRoot        Path to workchain repository
   server               Backend (default: local)
   defaultChain         Default chain name (default: deliverable-voice)
   outputDir            Default output directory (default: ./output)
   concurrency          Max parallel chains (default: CPU-1)
 
 Examples:
-  $ lufs-workchain config set workchainRoot /path/to/lufs-workchain
-  $ lufs-workchain config get workchainRoot
-  $ lufs-workchain config list
-  $ lufs-workchain config list --json
+  $ workchain config set workchainRoot /path/to/workchain
+  $ workchain config get workchainRoot
+  $ workchain config list
+  $ workchain config list --json
 
 Exit Codes:
   0  Success
@@ -226,13 +226,13 @@ const generateCmd = program
 generateCmd.addHelpText('after', `
 Examples:
   # Minimal component
-  $ lufs-workchain generate component \\
+  $ workchain generate component \\
       --name my_filter \\
       --description "A simple audio filter" \\
       --type audio
 
   # Heavy (Python venv) component with parameters
-  $ lufs-workchain generate component \\
+  $ workchain generate component \\
       --name spectral_gate \\
       --description "Spectral noise gate" \\
       --type audio --kind heavy \\
@@ -240,7 +240,7 @@ Examples:
       --python-packages numpy,scipy
 
   # API component (delegates to an external service)
-  $ lufs-workchain generate component \\
+  $ workchain generate component \\
       --name cloud_master \\
       --description "Cloud mastering via an external API" \\
       --type audio --kind api
@@ -266,9 +266,9 @@ const validateCmd = program
 
 validateCmd.addHelpText('after', `
 Examples:
-  $ lufs-workchain validate deliverable-voice
-  $ lufs-workchain validate all --json
-  $ lufs-workchain validate my-custom-chain
+  $ workchain validate deliverable-voice
+  $ workchain validate all --json
+  $ workchain validate my-custom-chain
 
 Exit Codes:
   0  Validation passed

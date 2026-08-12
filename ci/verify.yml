@@ -12,9 +12,9 @@
 # Local equivalent:
 #   sudo apt-get install -y ffmpeg
 #   cd cli && npm install && npm test
-#   node cli/bin/lufs-workchain.js registry check
-#   node cli/bin/lufs-workchain.js validate all --strict
-#   node cli/bin/lufs-workchain.js doctor          # informational
+#   node cli/bin/workchain.js registry check
+#   node cli/bin/workchain.js validate all --strict
+#   node cli/bin/workchain.js doctor          # informational
 #   bash tools/release-check.sh                    # if it exists
 #
 # Notes:
@@ -83,19 +83,19 @@ jobs:
       # If any component file changed without regenerating the index, this fails.
       # Never add continue-on-error here.
       - name: Check registry freshness
-        run: node cli/bin/lufs-workchain.js registry check
+        run: node cli/bin/workchain.js registry check
 
       # GATE: all chains must pass strict validation.
       # Never add continue-on-error here.
       - name: Validate all chains (strict)
-        run: node cli/bin/lufs-workchain.js validate all --strict
+        run: node cli/bin/workchain.js validate all --strict
 
       # INFORMATIONAL: doctor runs preflight across the full registry.
       # continue-on-error is intentional here — stem_separation will legitimately
       # fail its python venv / model-weights preflight on a bare runner.
       # This step exists so the output is visible in CI logs; it must NOT gate.
       # If we ever add a --exclude flag to doctor, replace this with:
-      #   node cli/bin/lufs-workchain.js doctor --exclude stem_separation
+      #   node cli/bin/workchain.js doctor --exclude stem_separation
       - name: Doctor preflight (informational)
-        run: node cli/bin/lufs-workchain.js doctor
+        run: node cli/bin/workchain.js doctor
         continue-on-error: true
