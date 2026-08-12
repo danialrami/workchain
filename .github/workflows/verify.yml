@@ -59,25 +59,29 @@ jobs:
         with:
           node-version: '20'
 
-      # No package-lock.json exists in cli/ — use npm install, not npm ci.
-      # If a lockfile is added later, switch this to: cd cli && npm ci
-      - name: Install Node dependencies
-        run: cd cli && npm install
+      # cli/package-lock.json is committed, so the install is frozen: the lockfile is the
+      # input, not a suggestion. npm ci also fails loudly when the lockfile and package.json
+      # have drifted, which npm install would quietly paper over.
+      - name: Install Node dependencies (frozen)
+        run: cd cli && npm ci
 
       - name: Run unit tests
         run: cd cli && npm test
 
-      # tools/release-check.sh is written by a concurrent orchestrator task.
-      # We check for it at runtime and call it if present; its non-zero exit
-      # fails the job. If absent, the step is a no-op and prints a notice.
-      - name: Run release-check script (if present)
-        run: |
-          if [ -x tools/release-check.sh ]; then
-            echo "Running tools/release-check.sh"
-            bash tools/release-check.sh
-          else
-            echo "tools/release-check.sh not found — skipping"
-          fi
+      # GATE: the real one — every light chain end to end, plus the negative test that proves
+      # the verifier still fails closed.
+      #
+      # This step used to be wrapped in `if [ -x tools/release-check.sh ]`, dating from when
+      # the script was still being written by a concurrent task. That guard made the most
+      # important gate in the repository FAIL OPEN: if the file were missing, renamed, or had
+      # lost its executable bit — which has happened four times, because pushing over the
+      # GitHub REST API resets the mode to 100644 — CI would silently skip verification
+      # entirely and report green on an unverified tree.
+      #
+      # The script exists and is committed 100755. Call it unconditionally. Never reintroduce
+      # a conditional here, and never add continue-on-error.
+      - name: Release check
+        run: ./tools/release-check.sh
 
       # GATE: components/index.json must not be stale.
       # If any component file changed without regenerating the index, this fails.
