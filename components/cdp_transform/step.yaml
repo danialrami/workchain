@@ -1,0 +1,134 @@
+name: cdp_transform
+description: "Composers Desktop Project sound transformation via cdp-wasm (232 typed spectral / granular / waveset effects), under a fail-closed parameter and output contract"
+version: "1.0"
+
+type: audio
+
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: audio
+
+params_schema:
+  effect:
+    type: string
+    default: "blur.blur"
+    description: "cdp-wasm catalog effect id, e.g. blur.blur, stretch.time, morph.morph. List them with `node cli/bin/workchain.js run-component cdp_transform --list-effects`, or see the cdp-wasm effect reference."
+  values_json:
+    type: string
+    default: "{}"
+    description: "JSON object of effect parameters, e.g. '{\"factor\": 4}'. Omitted parameters fall back to the cdp-wasm catalog default. Every supplied value is validated against the catalog's declared min/max BEFORE any audio is processed; out-of-range fails the step."
+  values_brk_json:
+    type: string
+    default: "{}"
+    description: "JSON object mapping a parameter name to a breakpoint envelope, so it varies over time instead of being constant: '{\"windows\": \"0 1\\n2 80\"}' sweeps blur from 1 to 80 window over two seconds. Each line is 'time value'; times must not decrease and at least two points are required. This is how CDP sound design actually works. A name that is not a parameter of this effect, or a malformed curve, fails the step before any audio is processed."
+  channels:
+    type: string
+    default: "split"
+    description: "How to feed multichannel sources to mono-only effects: 'split' processes each channel independently and recombines (preserves channel count, but can decorrelate the stereo image on content-dependent effects), or 'mix' folds to mono first. See the mono-compatibility note in README."
+  min_peak_dbfs:
+    type: number
+    default: -60
+    description: "Liveness floor. The rendered output's true peak must exceed this, else the step fails. Guards the 'structurally perfect but inaudible' failure mode (a filter that rejects the whole passband returns 2s of -64 dBFS and exits 0)."
+    range:
+      min: -120
+      max: 0
+  allow_unlocked_range:
+    type: boolean
+    default: false
+    description: "Permit values outside the catalog's curated min/max, falling back to the engine's hard limit (hardMin/hardMax) where cdp-wasm records one. Off by default: the curated range is the contract. Turning this on widens what is accepted but does NOT disable the output contract."
+  cdp_wasm_dir:
+    type: string
+    default: ""
+    description: "Path to an installed cdp-wasm package (the directory containing package.json and wasm/). Empty means resolve 'cdp-wasm' normally from node_modules. Also readable from the CDP_WASM_DIR environment variable."
+
+# Outputs Schema (version 1.0)
+outputs:
+  schema_version: "1.0"
+  description: "CDP-transformed audio plus the measured render record"
+  items:
+    - name: primary_output
+      type: file
+      description: "CDP-transformed audio (32-bit float WAV)"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "output/{input_name}_cdp_transform.wav"
+
+    - name: transform_record
+      type: json
+      description: "Effect id, validated parameters, and independently measured output properties (duration, true peak, RMS, rate, channels, stereo correlation, determinism hashes)"
+      required: true
+      path_template: "logs/cdp_transform.json"
+
+# Verification Contract (schema_version 1.0)
+# Checked by lib/workchain_verify.py after a clean exit.
+#
+# This component exists because cdp-wasm deliberately treats its declared parameter
+# ranges as advisory (src/effects.js:147-158) and checks its output only for
+# `bytes.length === 0`. A 44-byte-header WAV with zero samples passes that check, so
+# `stretch.time` at factor 0.02 returns silence and the agent-facing chain runner
+# reports `ok (0.00s, 1ch)` with exit 0. See
+#
+# HONEST SCOPING: `audio_valid` re-measures duration from the file (ffprobe ground
+# truth) and independently kills the zero-length class. The peak floor and the
+# determinism relation are asserted through `json_fields_within`, which reads values
+# the component measured and wrote — weaker than a re-measuring check. When an
+# `audio_peak_above` post-condition lands in workchain_verify.py, output_is_live_audio
+# should migrate to it.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+    - name: transform_record
+      assert: [exists, non_empty, json_valid]
+      json_has:
+        - effect
+        - params_out_of_range
+        - params_unknown
+        - measured_duration_s
+        - measured_peak_dbfs
+        - determinism_ok
+        - envelopes_all_applied
+  post_conditions:
+    - id: params_within_declared_range
+      check: json_fields_within
+      output: transform_record
+      require:
+        - "params_out_of_range == 0"
+        - "params_unknown == 0"
+      description: "Every supplied effect parameter was inside the cdp-wasm catalog's declared range for that parameter, and named a parameter that actually exists. This is the gate cdp-wasm leaves to the caller: its catalog knows stretch.time factor has min 0.25 and passes 0.02 straight through to a silent render. Refusing out-of-range input before processing eliminates that failure at the source rather than detecting it afterwards."
+
+    - id: output_is_live_audio
+      check: json_fields_within
+      output: transform_record
+      require:
+        - "measured_duration_s > 0"
+        - "measured_peak_dbfs > -60"
+      description: "The render is audible, not merely well-formed. Positive duration catches the zero-length case; the peak floor catches the inaudible case (filter.lohi with passband 20 / stopband 22 produces two full seconds of -63.97 dBFS and exits 0). The -60 literal is the contract's own floor and is deliberately independent of the min_peak_dbfs parameter, so loosening the parameter cannot silently loosen the contract."
+
+    - id: envelopes_were_applied
+      check: json_fields_within
+      output: transform_record
+      require:
+        - "envelopes_all_applied == true"
+      description: "Every breakpoint envelope the step requested was actually staged and applied. A parameter that accepted an envelope and silently ignored it would be a knob that lies -- worse than a knob that is absent -- so the count requested must equal the count applied. Malformed or misnamed envelopes are already refused before processing by params_within_declared_range."
+
+    - id: render_is_deterministic
+      check: json_fields_within
+      output: transform_record
+      require:
+        - "determinism_ok == true"
+      description: "Metamorphic invariant: rendering the same input with the same parameters twice produces byte-identical audio. Asserted only for effects the cdp-wasm catalog does NOT mark parityExempt (seeded RNG / randomised event placement); for those, the component sets determinism_ok true and records both hashes without claiming equality. The field is emitted only when both renders completed, so a run where either side failed to execute reports a missing field and FAILS rather than passing on None == None."
+
+requirements:
+  commands:
+    - node
+    - ffmpeg
+    - ffprobe

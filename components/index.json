@@ -25,6 +25,40 @@
       "version": "1.0"
     },
     {
+      "definition_hash": "sha256:a6636ae7a5f8654128cbe42728563b0a979629bccb5ca4c620c0d3db6fa79ab0",
+      "description": "Composers Desktop Project sound transformation via cdp-wasm (232 typed spectral / granular / waveset effects), under a fail-closed parameter and output contract",
+      "dir": "components/cdp_transform",
+      "name": "cdp_transform",
+      "params": [
+        "effect",
+        "values_json",
+        "values_brk_json",
+        "channels",
+        "min_peak_dbfs",
+        "allow_unlocked_range",
+        "cdp_wasm_dir"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output",
+          "transform_record"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "params_within_declared_range",
+          "output_is_live_audio",
+          "envelopes_were_applied",
+          "render_is_deterministic"
+        ]
+      },
+      "version": "1.0"
+    },
+    {
       "definition_hash": "sha256:2799478c73134b4c1e67ffb319350be0b821132bb452a2594dc71d0a1c30cf92",
       "description": "Content-addressed provenance: a reproducible cryptographic digest of the source audio, plus a short identifier derived from it",
       "dir": "components/content_hash",

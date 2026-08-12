@@ -765,6 +765,23 @@ def _eval_constraint(rec, expr):
         return (False, "unknown operator '%s' in constraint %r" % (op, text), field, val)
     if val is None:
         return (False, "%s: IS NULL, cannot compare %s %s" % (field, op, rhs), field, val)
+    # Booleans first. A JSON `true` is the most natural thing a contract wants to assert, and
+    # without this branch it could not be done: float("true") raises, the fallback compared
+    # str(True) == "true" -- 'True' against 'true', a case mismatch that always failed -- and
+    # _KINDS["number"] deliberately excludes bool, so the numeric path was closed too. It failed
+    # CLOSED, so nothing unsafe shipped, but a contract that cannot express `== true` while
+    # reporting `True == 'true'` is a gate that is simply broken and baffling to read.
+    if isinstance(val, bool) or rhs.lower() in ("true", "false"):
+        if rhs.lower() not in ("true", "false"):
+            return (False, "%s: %r is a boolean, cannot compare to %r" % (field, val, rhs), field, val)
+        if not isinstance(val, bool):
+            return (False, "%s: %r is %s, not a boolean" % (field, val, type(val).__name__), field, val)
+        if op not in ("==", "!="):
+            return (False, "%s: booleans support only == and !=, not %s" % (field, op), field, val)
+        want_b = rhs.lower() == "true"
+        ok = (val == want_b) if op == "==" else (val != want_b)
+        return (ok, "%s: %s %s %s%s" % (field, str(val).lower(), op, rhs.lower(),
+                                        "" if ok else "  <- VIOLATED"), field, val)
     try:
         want = float(rhs)
     except ValueError:
