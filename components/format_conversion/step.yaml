@@ -1,0 +1,104 @@
+name: format_conversion
+description: "Audio format conversion using FFmpeg (powered by audioconv-cli logic)"
+version: "1.1"
+
+type: audio
+
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - m4b
+  - ogg
+  - oga
+  - opus
+  - aac
+  - wma
+  - ac3
+  - amr
+  - au
+  - caf
+  - mka
+  - spx
+  - tta
+  - wv
+
+params_schema:
+  target_format:
+    type: string
+    description: "Target format: wav, flac, aiff, alac, tta, wv, mka (lossless) | mp3, m4a, ogg, opus, aac, wma, ac3, amr, spx (lossy)"
+  preserve_quality:
+    type: boolean
+    default: true
+    description: "Preserve sample rate, channels, bit depth (for lossless formats)"
+  bitrate:
+    type: string
+    default: "320k"
+    description: "Bitrate for lossy formats (e.g., 320k, 256k, 192k)"
+  sample_rate:
+    type: number
+    description: "Conform the output to this sample rate in Hz (e.g. 48000). Omit to preserve the source rate. When set, the verify: contract re-probes the output and fails the step if it did not land here."
+    range:
+      min: 8000
+      max: 384000
+  bit_depth:
+    type: number
+    description: "Conform the output to this bit depth (8, 16, 24, 32). Applies to lossless PCM targets; lossy codecs ignore it. Omit to preserve the source depth."
+    range:
+      min: 8
+      max: 32
+  channels:
+    type: number
+    description: "Conform the output to this channel count (1 = true mono, 2 = stereo). Omit to preserve the source layout. Downmixing to 1 sums the source channels, so check mono compatibility of the source first."
+    range:
+      min: 1
+      max: 8
+
+outputs:
+  schema_version: "1.0"
+  description: "Converted audio file in target format"
+  items:
+    - name: primary_output
+      type: file
+      description: "Converted audio file"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "{input_name}_converted.{target_format}"
+
+# Inbound contract (verified IN) — enforced before run.sh by lib/workchain_preflight.py.
+requirements:
+  commands:
+    - ffmpeg
+    - ffprobe
+
+# Outbound contract (verified OUT) — enforced after run.sh by lib/workchain_verify.py.
+#
+# Structural: the converted output must decode as real audio with positive duration.
+#
+# Numeric: when any of sample_rate / bit_depth / channels is set, `audio_format_matches`
+# independently re-probes the written file with ffprobe and fails the step if it did not
+# land on what was asked for. "Converted successfully" and "is now 48 kHz / 24-bit / mono"
+# are different claims, and only the second one is what a deliverable spec means — a
+# parameter that never reaches ffmpeg produces a perfectly valid file that is silently out
+# of spec, which the client discovers rather than you.
+#
+# Dimensions left unset are NOT asserted (the component was asked to preserve them, so
+# there is no claim to check). If none of the three is set the post-condition fails rather
+# than passing vacuously, so a chain cannot accidentally get a green format guarantee it
+# never requested — see check_audio_format_matches in lib/workchain_verify.py.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+  post_conditions:
+    - id: output_conforms_to_requested_format
+      check: audio_format_matches
+      output: primary_output
+      sample_rate_param: sample_rate
+      bit_depth_param: bit_depth
+      channels_param: channels
+      description: "Re-probes the converted file and proves its sample rate, bit depth and channel count are the ones the step requested. Only asserted for dimensions actually specified."

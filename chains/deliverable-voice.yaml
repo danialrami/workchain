@@ -1,0 +1,30 @@
+name: "Deliverable: Voice / Dialogue"
+description: "Prep a finished recording to a dialogue/VO spec: WAV, 48 kHz, 24-bit, true mono, -22 to -20 LUFS integrated, true peak below -3 dBFS. Conform first so loudness is measured on the audio that actually ships, then normalize, then audit against the spec."
+version: "1.0"
+
+globals:
+  # -21 with a +/-1.0 LU tolerance covers the -22..-20 LUFS delivery window exactly.
+  lufs_target: -21
+
+steps:
+  - name: format_conversion
+    enabled: true
+    params:
+      target_format: wav
+      sample_rate: 48000
+      bit_depth: 24
+      channels: 1
+
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -21
+      two_pass: true
+      lra: 7
+      true_peak: -3.0
+
+  - name: audio_benchmark
+    enabled: true
+    params:
+      checks: ["format", "loudness", "dc_offset", "noise_floor", "phase", "dynamics"]
+      expected_spec: "24/48000/1"

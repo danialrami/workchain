@@ -1,0 +1,12 @@
+name: "Test: Stem Separation (hybrid)"
+description: "Default hybrid preset — RoFormer vocals + Demucs drums/bass/other (4 stems). Switch quality via the preset param: demucs, demucs6, roformer, mdx, custom."
+version: "1.0"
+engine_version: "2.0"
+
+steps:
+  - name: stem_separation
+    enabled: true
+    params:
+      preset: "hybrid"
+      primary_stem: "vocals"
+      output_format: "wav"

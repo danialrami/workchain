@@ -1,0 +1,17 @@
+{
+  "name": "workchain-dependencies",
+  "version": "1.0.0",
+  "description": "Audio workchain project dependencies",
+  "private": true,
+  "dependencies": {
+    "jdenticon": "^3.3.0"
+  },
+  "scripts": {
+    "postinstall": "echo 'Dependencies installed successfully'",
+    "test-jdenticon": "node -e \"console.log('jdenticon test:', require('jdenticon'))\""
+  },
+  "engines": {
+    "node": ">=20.17.0 || >=22.9.0",
+    "npm": ">=10.0.0"
+  }
+}

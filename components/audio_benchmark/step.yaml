@@ -1,0 +1,51 @@
+name: audio_benchmark
+description: "Audio quality analysis benchmark suite (format, loudness, DC offset, noise floor, spectral, phase, dynamics)"
+version: "1.0"
+
+type: text
+
+params_schema:
+  checks:
+    type: array
+    default: ["format", "loudness", "dc_offset", "noise_floor", "spectral", "phase", "dynamics"]
+    description: "Which checks to run (format, loudness, dc_offset, noise_floor, spectral, phase, dynamics, or 'all')"
+  expected_spec:
+    type: string
+    default: ""
+    description: "Expected format spec for format check (e.g., '24/48000/2' for 24-bit, 48kHz, stereo)"
+
+outputs:
+  schema_version: "1.0"
+  description: "Audio quality benchmark analysis results"
+  items:
+    - name: benchmark_report
+      type: json
+      description: "Complete benchmark results in JSON format"
+      required: true
+      mime_type: "application/json"
+      path_template: "logs/audio_benchmark.json"
+      
+    - name: primary_output
+      type: file
+      description: "Primary output (same as benchmark_report)"
+      required: true
+      mime_type: "application/json"
+      path_template: "logs/audio_benchmark.json"
+
+requirements:
+  commands:
+    - ffmpeg
+    - ffprobe
+    - python3
+
+# Outbound contract (verified OUT). It's a measurement/report component, so the contract is
+# structural: the benchmark report must be valid JSON carrying its core keys. (Individual
+# check values are informational — audio_benchmark reports, it doesn't gate on a target.)
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: benchmark_report
+      assert: [exists, non_empty, json_valid]
+      json_has: [checks, benchmark_count]
+    - name: primary_output
+      assert: [exists, non_empty, json_valid]

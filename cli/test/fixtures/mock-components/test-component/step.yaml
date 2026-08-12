@@ -1,0 +1,26 @@
+name: test-component
+description: "A minimal component for testing"
+version: "1.0"
+type: audio
+input_types:
+  - wav
+  - mp3
+output_type: audio
+params_schema:
+  threshold:
+    type: number
+    default: 0.5
+    description: "Test parameter"
+outputs:
+  schema_version: "1.0"
+  description: "Test output"
+  items:
+    - name: primary_output
+      type: file
+      description: "Test output file"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "{input_name}_test.{input_ext}"
+requirements:
+  commands:
+    - ffmpeg

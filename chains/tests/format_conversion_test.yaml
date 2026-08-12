@@ -1,0 +1,11 @@
+name: "Format Conversion Test"
+description: "Test chain for format_conversion component"
+version: "1.0"
+
+steps:
+  - name: format_conversion
+    enabled: true
+    params:
+      target_format: "mp3"
+      preserve_quality: false
+      bitrate: "320k"

@@ -1,0 +1,117 @@
+{
+  "schema_version": "0.3",
+  "name": "workchain",
+  "display_name": "LUFS Workchain",
+  "description": "Agent-first audio processing engine: compose self-contained components into YAML chains and run them via CLI, MCP, or the Bash engine. Every component declares inbound requirements (preflighted before running) and outbound verify contracts (checked after running) so success means proven correct, not merely exited 0.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/lufs-audio/workchain",
+  "homepage": "https://lufs.audio",
+  "discovery": {
+    "llms_txt": "llms.txt",
+    "openapi": "mcp-server/openapi.yaml",
+    "agents_md": "AGENTS.md",
+    "component_registry": "components/index.json"
+  },
+  "interfaces": [
+    {
+      "type": "cli",
+      "package": "@lufs/workchain",
+      "entry": "workchain",
+      "install": "cd cli && npm install && npm link",
+      "io": {
+        "structured_output": "--json on stdout",
+        "progress": "newline-delimited NDJSON on stderr",
+        "exit_codes": { "0": "success", "1": "execution error", "2": "input error", "3": "config error" }
+      },
+      "commands": [
+        "run", "run-component", "components", "component", "chains", "chain",
+        "validate", "doctor", "registry", "generate", "config"
+      ],
+      "discover": [
+        "workchain --help",
+        "workchain components --json",
+        "workchain component <name> --json",
+        "workchain chains --json",
+        "workchain run <chain> <input> --dry-run --json"
+      ]
+    },
+    {
+      "type": "mcp",
+      "implementation": "fastmcp",
+      "entry": "python mcp-server/server.py",
+      "transports": ["stdio", "streamable-http"],
+      "tools": [
+        "list_components",
+        "get_step_schema",
+        "validate_chain",
+        "run_chain",
+        "run_component",
+        "create_component"
+      ]
+    }
+  ],
+  "capabilities": [
+    { "id": "discover", "summary": "List components and chains and read their full schemas (params with ranges, typed outputs, requirements, verify contracts).", "cli": "components|component|chains|chain", "mcp": "list_components|get_step_schema" },
+    { "id": "validate", "summary": "Schema-aware validation before running: param types, numeric ranges, unknown params, required-command preflight (Verified IN).", "cli": "validate --strict", "mcp": "validate_chain(strict=true)" },
+    { "id": "run_chain", "summary": "Execute a YAML chain over an input file; preview with --dry-run; optional HTML report.", "cli": "run", "mcp": "run_chain" },
+    { "id": "run_component", "summary": "Run a single component standalone, with JSON params; batch over a directory.", "cli": "run-component", "mcp": "run_component" },
+    { "id": "build", "summary": "Scaffold a new component (fails until implemented, so no false success).", "cli": "generate component", "mcp": "create_component" },
+    { "id": "health", "summary": "Check inbound-requirements preflight across every component (install health check).", "cli": "doctor", "mcp": null },
+    { "id": "registry", "summary": "Generate or verify freshness of components/index.json, the generated component registry with per-component definition hashes and tiers.", "cli": "registry generate|check", "mcp": null }
+  ],
+  "verification": {
+    "prime_directive": "proven correct, not exited 0",
+    "inbound": {
+      "declared_in": "step.yaml requirements: (commands, python, node, models, env)",
+      "enforced_by": "lib/workchain_preflight.py",
+      "when": "before run.sh executes",
+      "label": "Verified IN"
+    },
+    "outbound": {
+      "declared_in": "step.yaml verify: (outputs[].assert, outputs[].json_has, post_conditions[])",
+      "enforced_by": "lib/workchain_verify.py",
+      "when": "after run.sh completes, before its output feeds the next step",
+      "label": "Verified OUT",
+      "assert_primitives": ["exists", "non_empty", "audio_valid", "json_valid"],
+      "post_condition_checks": ["audio_lufs_within", "audio_duration_matches", "stems_recombine", "acoustic_roundtrip", "seed_record_verifies", "embedding_wellformed"],
+      "post_condition_checks_source": "POST_CHECKS in lib/workchain_verify.py — that dict is authoritative; this list mirrors it",
+      "note": "post_conditions support numeric/relational tolerances and metamorphic invariants for creative/probabilistic operators (e.g. stem separation) that have no single correct output."
+    },
+    "tiers": ["unverified", "verified", "certified"],
+    "tiers_note": "certified (ed25519 signature over a component's definition hash) is on the roadmap, not yet implemented."
+  },
+  "registry": {
+    "source_of_truth": "the components/ directory itself (folder-per-component + step.yaml manifest)",
+    "generated_index": "components/index.json",
+    "generated_by": "lib/workchain_registry.py generate",
+    "not_enumerated_here": "Component names are deliberately absent from this file. The generated index IS the list. A hand-maintained duplicate lived here and drifted — it still read ten components while the registry held nineteen, silently omitting the entire archive-ingest family. Read components/index.json, or run `workchain components --json` / MCP list_components().",
+    "staleness_check": "lib/workchain_registry.py check (also: workchain registry check)",
+    "definition_hash": "SHA-256 over each component's tracked source files, excluding .venv/, models/, and caches",
+    "tiers": ["light", "heavy"],
+    "tier_rule": "heavy if step.yaml requirements declares python or models, else light"
+  },
+  "distribution": {
+    "npm_core": "engine + lib/ + CLI + light stdlib components (normalization, format_conversion, audio_benchmark, catalog); ffmpeg + system python3 only",
+    "heavy_components": "not enumerated here — components/index.json entries with tier \"heavy\" (rule: step.yaml requirements declares python or models)",
+    "heavy_provisioning": "uv sync (separate from the npm core install)",
+    "hosted_mcp_tier": "planned, for heavy work without local provisioning"
+  },
+  "model": {
+    "component": "components/<name>/{step.yaml, run.sh, README.md}",
+    "chain": "YAML: name, version, optional globals, steps[] (name/enabled/params)",
+    "param_precedence": "step params > chain globals > schema default",
+    "data_flow": "shared context.json; each step's primary output becomes the next step's input"
+  },
+  "requirements": {
+    "commands": ["ffmpeg", "ffprobe"],
+    "node": ">=18",
+    "python": ">=3.10 (heavy components / MCP); engine + core components run on system python3 + ffmpeg",
+    "uv": "optional (only when a chain uses Python-heavy components and you want a managed venv)"
+  },
+  "contract": {
+    "params_apply": "Parameters always take effect (precedence resolved in lib/workchain_yaml.py).",
+    "honest_failure": "A missing requirement halts the run with a clear error and non-zero exit; a component that fails its declared verify: contract is recorded failed, never completed, for output it did not actually produce or prove.",
+    "single_parser": "engine, CLI, and MCP parse YAML through one module (lib/workchain_yaml.py)."
+  }
+}

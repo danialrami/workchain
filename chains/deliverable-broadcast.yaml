@@ -1,0 +1,29 @@
+name: "Deliverable: Broadcast (EBU R128)"
+description: "Prep a finished mix for broadcast under EBU R128: WAV, 48 kHz, 24-bit, stereo, -23 LUFS integrated, true peak below -1.0 dBTP. The 48 kHz rate is not optional in this world, which is exactly why a format contract is worth having."
+version: "1.0"
+
+globals:
+  lufs_target: -23
+
+steps:
+  - name: format_conversion
+    enabled: true
+    params:
+      target_format: wav
+      sample_rate: 48000
+      bit_depth: 24
+      channels: 2
+
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -23
+      two_pass: true
+      lra: 7
+      true_peak: -1.0
+
+  - name: audio_benchmark
+    enabled: true
+    params:
+      checks: ["format", "loudness", "dc_offset", "noise_floor", "phase", "dynamics"]
+      expected_spec: "24/48000/2"

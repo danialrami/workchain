@@ -1,0 +1,3 @@
+# Heavy, machine-local artifacts — never committed.
+.venv/
+models/

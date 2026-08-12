@@ -1,0 +1,4 @@
+test/
+fixtures/
+*.test.js
+vitest.config.js

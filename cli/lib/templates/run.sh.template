@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Component: {{COMPONENT_NAME}}
+# Description: {{COMPONENT_DESCRIPTION}}
+
+COMPONENT_NAME="{{COMPONENT_NAME}}"
+COMPONENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# CRITICAL: Don't overwrite global variables!
+if [[ -z "$WORKCHAIN_ROOT" ]]; then
+    WORKCHAIN_ROOT="$(cd "$COMPONENT_DIR/../.." && pwd)"
+    source "$WORKCHAIN_ROOT/lib/constants.sh" 2>/dev/null || true
+    source "$WORKCHAIN_ROOT/lib/common-utils.sh" 2>/dev/null || true
+fi
+
+CONTEXT_FILE="$1"
+STEP_CONFIG="$2"
+
+if [[ -z "$CONTEXT_FILE" ]]; then
+    echo "Usage: $0 <context_file> <step_config>"
+    return 1
+fi
+
+log_step "Running: $COMPONENT_NAME"
+
+# Get input/output paths from context
+INPUT_FILE=$(ctx_get_abs "$CONTEXT_FILE" input_file)
+OUTPUT_DIR=$(ctx_get_abs "$CONTEXT_FILE" output_dir)
+INPUT_NAME=$(ctx_get "$CONTEXT_FILE" input_name)
+INPUT_EXT=$(ctx_get "$CONTEXT_FILE" input_ext)
+
+# Parameter getter — reads the engine-resolved STEP_CONFIG (params > globals > default).
+get_param() {
+    local param_name="$1"
+    local default="${2:-}"
+    local value
+    value=$(echo "$STEP_CONFIG" | grep -E "^\s+${param_name}:" | sed "s/.*${param_name}: *//" | head -1 | sed 's/^["'\'']\(.*\)["'\'']$/\1/')
+    if [[ -n "$value" ]]; then echo "$value"; else echo "$default"; fi
+}
+
+{{PARAMETER_VARS}}
+
+log_info "$COMPONENT_NAME parameters:"
+{{PARAMETER_LOG}}
+
+# Detect input from previous steps (if dependencies exist)
+{{DEPENDENCY_DETECTION}}
+
+# Output file path
+OUTPUT_FILE="$OUTPUT_DIR/{{OUTPUT_SUBDIR}}${INPUT_NAME}_${COMPONENT_NAME}.{{OUTPUT_EXT}}"
+ensure_dir "$(dirname "$OUTPUT_FILE")"
+ensure_dir "$OUTPUT_DIR/logs"
+
+LOG_FILE="$OUTPUT_DIR/logs/${COMPONENT_NAME}.log"
+
+# Check required commands (the engine also preflights these; this guards standalone runs).
+{{COMMAND_CHECKS}}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  IMPLEMENT ME
+#  This scaffold FAILS ON PURPOSE so an agent never mistakes an unimplemented
+#  component for a working one. Replace the body below with real processing that
+#  writes "$OUTPUT_FILE", then DELETE the `WORKCHAIN_NOT_IMPLEMENTED=1` line.
+# ─────────────────────────────────────────────────────────────────────────────
+WORKCHAIN_NOT_IMPLEMENTED=1
+
+if [[ "${WORKCHAIN_NOT_IMPLEMENTED:-0}" == "1" ]]; then
+    log_error "$COMPONENT_NAME is an unimplemented scaffold."
+    log_error "Add processing in components/$COMPONENT_NAME/run.sh, then remove the 'WORKCHAIN_NOT_IMPLEMENTED=1' line."
+    register_output "$CONTEXT_FILE" "$COMPONENT_NAME" "primary_output" "$OUTPUT_FILE" "file" \
+        "{\"note\": \"scaffold_not_implemented\"}" \
+        "not_implemented"
+    return 1
+fi
+
+# TODO: Add your processing logic here, producing "$OUTPUT_FILE".
+# Example: ffmpeg -nostdin -i "$INPUT_FILE" "$OUTPUT_FILE" >> "$LOG_FILE" 2>&1
+
+# Honest output check — never report success without the declared primary output.
+if [[ ! -f "$OUTPUT_FILE" ]]; then
+    log_error "$COMPONENT_NAME did not produce its primary output: $OUTPUT_FILE"
+    register_output "$CONTEXT_FILE" "$COMPONENT_NAME" "primary_output" "$OUTPUT_FILE" "file" \
+        "{\"error\": \"missing_primary_output\"}" \
+        "failed"
+    return 1
+fi
+
+register_output "$CONTEXT_FILE" "$COMPONENT_NAME" "primary_output" "$OUTPUT_FILE" "file" \
+    "{}" \
+    "completed"
+log_info "$COMPONENT_NAME completed"
+return 0

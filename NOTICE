@@ -1,0 +1,31 @@
+Workchain
+Copyright 2026 LUFS Audio (Daniel Ramirez)
+
+This product includes software developed at LUFS Audio (https://lufs.audio).
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text
+and LICENSING.md for what is published here, what is not, and why.
+
+--------------------------------------------------------------------------------
+Lineage and acknowledgement
+
+The design of this engine — small, self-contained, composable audio
+transformation programs driven directly by a composer — follows the Composers
+Desktop Project (https://www.composersdesktop.com), created from 1983 onward by
+Trevor Wishart, Richard Dobson, Martin Atkins, Archer Endrich, Richard Orton and
+others. No CDP code is included in this repository. The acknowledgement is to the
+idea, which we did not originate.
+
+--------------------------------------------------------------------------------
+Third-party components
+
+Components that wrap third-party software carry their obligations in their own
+README. At the time of writing:
+
+  components/cdp_transform/ wraps cdp-wasm (https://github.com/cdp-wasm-suite/cdp-wasm),
+  Copyright (c) 2026 Oliver Larkin, licensed MIT for its JavaScript API and
+  LGPL-2.1-or-later for the WebAssembly modules compiled from the CDP8 sources
+  (Copyright (c) 1983-2023 Trevor Wishart, Richard Dobson, Martin Atkins and
+  Composers Desktop Project Ltd). cdp-wasm is consumed as a dynamically loaded
+  npm dependency and is not statically linked. It is not vendored into this
+  repository.

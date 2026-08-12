@@ -1,0 +1,10 @@
+name: "Audio Benchmark Test"
+description: "Test chain for audio_benchmark component"
+version: "1.0"
+
+steps:
+  - name: audio_benchmark
+    enabled: true
+    params:
+      checks: ["format", "loudness", "dc_offset", "noise_floor", "spectral", "phase", "dynamics"]
+      expected_spec: ""

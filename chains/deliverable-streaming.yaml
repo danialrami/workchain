@@ -1,0 +1,29 @@
+name: "Deliverable: Streaming"
+description: "Prep a finished master for streaming: WAV, 48 kHz, 24-bit, stereo, -14 LUFS integrated with a -1.0 dBTP ceiling. Same shape as the voice profile with the platform numbers; the contract re-measures both format and loudness."
+version: "1.0"
+
+globals:
+  lufs_target: -14
+
+steps:
+  - name: format_conversion
+    enabled: true
+    params:
+      target_format: wav
+      sample_rate: 48000
+      bit_depth: 24
+      channels: 2
+
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+      lra: 7
+      true_peak: -1.0
+
+  - name: audio_benchmark
+    enabled: true
+    params:
+      checks: ["format", "loudness", "dc_offset", "phase", "dynamics"]
+      expected_spec: "24/48000/2"

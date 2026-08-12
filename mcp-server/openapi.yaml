@@ -1,0 +1,159 @@
+openapi: 3.1.0
+info:
+  title: LUFS Workchain MCP
+  version: 0.1.0
+  description: >
+    Model Context Protocol tools for LUFS Workchain — an agent-first audio processing engine.
+    Each tool returns a JSON string. When served over HTTP (streamable-http transport), tools
+    are invoked as POST operations. This spec documents tool signatures for discovery and for
+    MCP gateways; the canonical runtime is FastMCP (mcp-server/server.py).
+
+    Every component enforces a two-sided contract: inbound `requirements:` are preflighted
+    before it runs (lib/workchain_preflight.py — "Verified IN"), and outbound `verify:`
+    assertions/post-conditions are checked after it runs (lib/workchain_verify.py —
+    "Verified OUT"). `get_step_schema` surfaces both; `validate_chain(strict=true)` checks
+    the inbound side before you spend time running anything. The prime directive: proven
+    correct, not merely exited 0.
+
+    Two CLI-only operations — `doctor` (preflight every component) and `registry
+    generate|check` (the generated components/index.json with per-component definition
+    hashes and tier) — are not exposed as MCP tools here; invoke them via the Node CLI
+    (`lufs-workchain doctor`, `lufs-workchain registry check`) if an agent needs install
+    health or registry freshness rather than per-run execution.
+  license:
+    name: MIT
+  contact:
+    url: https://github.com/lufs-audio/workchain
+servers:
+  - url: http://localhost:9000
+    description: Local FastMCP (python server.py --transport streamable-http --port 9000)
+tags:
+  - name: discovery
+  - name: validation
+  - name: execution
+  - name: authoring
+paths:
+  /tools/list_components:
+    post:
+      tags: [discovery]
+      operationId: list_components
+      summary: List all available processing components.
+      description: >
+        Start here. Returns name, description, type, version, and param_count for each
+        component. No arguments.
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+  /tools/get_step_schema:
+    post:
+      tags: [discovery]
+      operationId: get_step_schema
+      summary: Full schema for one component (params with ranges, outputs, requirements, verify contract).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component]
+              properties:
+                component: { type: string, description: "Component directory name, e.g. normalization" }
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+  /tools/validate_chain:
+    post:
+      tags: [validation]
+      operationId: validate_chain
+      summary: Validate a chain before running it.
+      description: >
+        With strict=true (default), checks each step's params against the component schema
+        (unknown keys, type, numeric range) and preflights required commands — the inbound
+        ("Verified IN") side of the contract, checked before any component runs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chain_file]
+              properties:
+                chain_file: { type: string, description: "Chain name, relative path under chains/, or absolute path" }
+                strict: { type: boolean, default: true }
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+  /tools/run_chain:
+    post:
+      tags: [execution]
+      operationId: run_chain
+      summary: Run a processing chain on an audio file.
+      description: >
+        Executes every step's requirements preflight before it runs and its verify contract
+        after it runs; a step whose output fails verification is recorded failed, not
+        completed, and does not silently become the next step's input.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chain_file, input_file]
+              properties:
+                chain_file: { type: string }
+                input_file: { type: string }
+                output_dir: { type: string, description: "Optional; defaults to a timestamped dir" }
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+  /tools/run_component:
+    post:
+      tags: [execution]
+      operationId: run_component
+      summary: Run a single component standalone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component, input_file]
+              properties:
+                component: { type: string }
+                input_file: { type: string }
+                output_dir: { type: string }
+                params_json: { type: string, description: 'JSON object of params, e.g. {"target_lufs":-14}' }
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+  /tools/create_component:
+    post:
+      tags: [authoring]
+      operationId: create_component
+      summary: Scaffold a new component (fails until implemented).
+      description: >
+        Creates components/<name>/{step.yaml, run.sh, README.md}. The generated run.sh fails
+        via a WORKCHAIN_NOT_IMPLEMENTED=1 sentinel until you implement it, so a fresh scaffold
+        can never report false success. Add real requirements: and verify: declarations to
+        step.yaml as part of implementing it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description]
+              properties:
+                name: { type: string, description: "snake_case component name" }
+                description: { type: string }
+                type: { type: string, default: audio, enum: [audio, image, video, text, data, mixed] }
+                params_json: { type: string, description: 'JSON array, e.g. [{"name":"gain_db","type":"number","default":3}]' }
+                commands: { type: string, description: "Comma-separated required CLI tools, e.g. ffmpeg" }
+      responses:
+        "200": { $ref: "#/components/responses/JsonResult" }
+components:
+  responses:
+    JsonResult:
+      description: A JSON string. `status` is "completed"/"error" (or "invalid" for validation).
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string }
+            additionalProperties: true

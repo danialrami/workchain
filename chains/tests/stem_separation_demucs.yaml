@@ -1,0 +1,12 @@
+name: "Test: Stem Separation (demucs preset)"
+description: "Shows switching the preset knob: single fine-tuned Demucs v4, 4 stems."
+version: "1.0"
+engine_version: "2.0"
+
+steps:
+  - name: stem_separation
+    enabled: true
+    params:
+      preset: "demucs"
+      primary_stem: "drums"
+      output_format: "wav"

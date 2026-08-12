@@ -1,0 +1,13 @@
+name: "Test: Normalization Off-Target"
+description: "Asks for a target unreachable under the TP ceiling; the component exits 0 but misses. The verifier must catch it."
+version: "1.0"
+globals:
+  lufs_target: -5
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -5
+      two_pass: true
+      lra: 7
+      true_peak: -1.5

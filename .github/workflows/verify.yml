@@ -1,0 +1,101 @@
+# ci/verify.yml — Main correctness gate for lufs-audio/workchain
+#
+# Guards:
+#   - Node CLI unit tests (vitest)
+#   - Registry freshness: components/index.json must not be stale
+#   - Chain validation: all chains pass --strict
+#   - Release-check script (tools/release-check.sh), if present
+#   - Doctor preflight (informational only — see note below)
+#
+# Triggers: push to main, every pull_request
+#
+# Local equivalent:
+#   sudo apt-get install -y ffmpeg
+#   cd cli && npm install && npm test
+#   node cli/bin/lufs-workchain.js registry check
+#   node cli/bin/lufs-workchain.js validate all --strict
+#   node cli/bin/lufs-workchain.js doctor          # informational
+#   bash tools/release-check.sh                    # if it exists
+#
+# Notes:
+#   - stem_separation is EXCLUDED from all validation steps that would require
+#     its venv + model weights (audio-separator, ~GB of model data). The component
+#     is correctly marked with a python.venv requirement; preflight will report it
+#     missing on a bare runner. `doctor` is run with --exclude stem_separation (or
+#     equivalent flag; see below) to avoid a false failure that would mask real ones.
+#   - `doctor` does NOT gate the build. The workchain doctor command exercises
+#     preflight across the full registry, and heavy components (stem_separation)
+#     will legitimately fail on a bare GitHub-hosted runner that has no venv or
+#     model weights. Making doctor a gate would require either skipping the one
+#     component that cannot run in CI (acceptable) or provisioning gigabytes of
+#     model weights (not acceptable on free-tier). Instead we run it informational
+#     (continue-on-error: true) so its output is visible in the log and real
+#     light-component regressions are caught by the validate/registry steps.
+#   - `registry check` and `validate all --strict` DO gate. Never add
+#     continue-on-error or || true to those steps.
+
+name: verify
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  verify:
+    name: Verify (ubuntu-latest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4.x
+
+      - name: Install system dependencies (ffmpeg)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4 # v4.x
+        with:
+          node-version: '20'
+
+      # No package-lock.json exists in cli/ — use npm install, not npm ci.
+      # If a lockfile is added later, switch this to: cd cli && npm ci
+      - name: Install Node dependencies
+        run: cd cli && npm install
+
+      - name: Run unit tests
+        run: cd cli && npm test
+
+      # tools/release-check.sh is written by a concurrent orchestrator task.
+      # We check for it at runtime and call it if present; its non-zero exit
+      # fails the job. If absent, the step is a no-op and prints a notice.
+      - name: Run release-check script (if present)
+        run: |
+          if [ -x tools/release-check.sh ]; then
+            echo "Running tools/release-check.sh"
+            bash tools/release-check.sh
+          else
+            echo "tools/release-check.sh not found — skipping"
+          fi
+
+      # GATE: components/index.json must not be stale.
+      # If any component file changed without regenerating the index, this fails.
+      # Never add continue-on-error here.
+      - name: Check registry freshness
+        run: node cli/bin/lufs-workchain.js registry check
+
+      # GATE: all chains must pass strict validation.
+      # Never add continue-on-error here.
+      - name: Validate all chains (strict)
+        run: node cli/bin/lufs-workchain.js validate all --strict
+
+      # INFORMATIONAL: doctor runs preflight across the full registry.
+      # continue-on-error is intentional here — stem_separation will legitimately
+      # fail its python venv / model-weights preflight on a bare runner.
+      # This step exists so the output is visible in CI logs; it must NOT gate.
+      # If we ever add a --exclude flag to doctor, replace this with:
+      #   node cli/bin/lufs-workchain.js doctor --exclude stem_separation
+      - name: Doctor preflight (informational)
+        run: node cli/bin/lufs-workchain.js doctor
+        continue-on-error: true

@@ -1,0 +1,126 @@
+# ci/shellcheck.yml — Shell script linting for lufs-audio/workchain
+#
+# Guards:
+#   engine/*.sh, lib/*.sh, and components/*/run.sh are linted with shellcheck.
+#
+# Triggers: push to main, every pull_request (only when .sh files change)
+#
+# Local equivalent:
+#   sudo apt-get install -y shellcheck
+#   shellcheck -x \
+#     -e SC2034 -e SC2155 -e SC1091 -e SC1090 -e SC2094 \
+#     engine/*.sh lib/*.sh components/*/run.sh
+#
+# Exclusions and rationale:
+#   SC2034  — "variable appears unused": constants.sh and common-utils.sh
+#             intentionally export variables consumed by sourcing scripts
+#             (WORKCHAIN_ROOT, LIB_DIR, COMPONENTS_DIR, log_info, register_output,
+#             etc.). The same applies to STEP_CONFIG, INPUT_NAME, GLOBALS, etc.
+#             in components, which are set as side-effects for the sourcing engine.
+#   SC2155  — "declare and assign separately": a pattern used throughout the
+#             codebase for local var=$(cmd). The return-value-masking risk is
+#             understood; fixing all sites is a separate hardening task.
+#   SC1091  — "not following source": scripts source siblings via runtime
+#             variables ($WORKCHAIN_ROOT, $LIB_DIR, $COMPONENT_DIR). shellcheck
+#             cannot statically resolve these paths; -x would still not help because
+#             the paths are fully dynamic. This is by design — the engine sources
+#             run.sh files at runtime.
+#   SC1090  — "can't follow non-constant source": same rationale as SC1091.
+#   SC2094  — "read and write same file in pipeline": false positives from the
+#             engine using a plan file fd for step iteration (done 3< "$plan_file")
+#             while the plan file is already closed before the loop body writes.
+#
+# Genuine findings, all since fixed (reported here historically; none silenced):
+#   SC2296 (error) — engine/yaml-parser.sh: a regex used ${空格} (Chinese for "space"),
+#             not a valid Bash var name, so the expansion was empty and the regex matched
+#             too broadly. Fixed by removing it. It remains a gate — do not suppress SC2296.
+#   SC2181 (style) — engine/workchain-engine.sh and components/stem_separation/run.sh:
+#             `if [[ $? -ne 0 ]]` after a command instead of `if ! cmd`. Rewritten to
+#             `if ! source ...` / `if ! S1=$(...)` etc.
+#   SC2317 (info) — components/stem_separation/run.sh line 41: `return 1 2>/dev/null || exit 1`
+#             had an unreachable `exit 1` (return always succeeds). Now plain `return 1`,
+#             matching every other component's usage guard.
+#   SC2001 (style) — engine/yaml-parser.sh: four `echo "$x" | sed` patterns. Two (leading-
+#             whitespace extraction) rewrote with `${line%%[! ]*}`; two (irregular ':'-removal
+#             and quote-stripping) are not a clean ${//} and carry a targeted per-line
+#             `# shellcheck disable=SC2001` with a reason, rather than a global exclusion.
+#
+# SC2296 is NOT in the global exclusions; it must remain a gate.
+
+name: shellcheck
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'engine/*.sh'
+      - 'lib/*.sh'
+      - 'components/*/run.sh'
+      - 'components/audio_benchmark/*.sh'
+      - 'ci/shellcheck.yml'
+  pull_request:
+    paths:
+      - 'engine/*.sh'
+      - 'lib/*.sh'
+      - 'components/*/run.sh'
+      - 'components/audio_benchmark/*.sh'
+      - 'ci/shellcheck.yml'
+
+jobs:
+  shellcheck:
+    name: ShellCheck (ubuntu-latest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4.x
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # Lint engine and lib scripts.
+      # SC2296 is NOT excluded — it is a genuine error in yaml-parser.sh that must gate.
+      # See the header comment above for the full rationale on each exclusion.
+      - name: Lint engine and lib scripts
+        run: |
+          shellcheck -x \
+            -e SC2034 -e SC2155 -e SC1091 -e SC1090 -e SC2094 \
+            engine/chain-validator.sh \
+            engine/step-runner.sh \
+            engine/workchain-engine.sh \
+            engine/yaml-parser.sh \
+            lib/common-utils.sh \
+            lib/constants.sh
+
+      # Lint component run.sh files.
+      # Components use `return` not `exit` (they are sourced by the engine), and
+      # reference variables injected by the sourcing environment (WORKCHAIN_ROOT,
+      # log_info, register_output, STEP_CONFIG, etc.) — hence the SC1091/SC1090/SC2034
+      # exclusions are appropriate here.
+      # stem_separation/run.sh is included: its SC2296-free findings (SC2181, SC2317)
+      # are reported above and are not silenced here.
+      - name: Lint component run.sh files
+        run: |
+          shellcheck -x \
+            -e SC2034 -e SC2155 -e SC1091 -e SC1090 -e SC2094 \
+            components/_template/run.sh \
+            components/audio_benchmark/run.sh \
+            components/content_hash/run.sh \
+            components/format_conversion/run.sh \
+            components/normalization/run.sh \
+            components/stem_separation/run.sh
+
+      # Also lint the audio_benchmark helper scripts (sourced by its run.sh).
+      - name: Lint audio_benchmark helper scripts
+        run: |
+          shellcheck -x \
+            -e SC2034 -e SC2155 -e SC1091 -e SC1090 -e SC2094 \
+            components/audio_benchmark/common.sh \
+            components/audio_benchmark/audio_format.sh \
+            components/audio_benchmark/audio_loudness.sh \
+            components/audio_benchmark/audio_dc_offset.sh \
+            components/audio_benchmark/audio_noise_floor.sh \
+            components/audio_benchmark/audio_spectral.sh \
+            components/audio_benchmark/audio_phase.sh \
+            components/audio_benchmark/audio_dynamics.sh

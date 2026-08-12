@@ -1,0 +1,84 @@
+name: content_hash
+description: "Content-addressed provenance: a reproducible cryptographic digest of the source audio, plus a short identifier derived from it"
+version: "1.0"
+
+type: data
+
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+  - opus
+
+output_type: data
+
+params_schema:
+  algorithm:
+    type: string
+    default: "sha256"
+    description: "Digest algorithm, as named by Python's hashlib (sha256, sha512, blake2b, sha1, md5). sha256 is the default and the one to use unless you have a reason; sha1 and md5 are available for interoperating with existing catalogues, not for new provenance."
+  id_prefix:
+    type: string
+    default: ""
+    description: "Prefix for the short identifier, e.g. 'lufs-' produces 'lufs-a1b2c3d4'. Empty means the bare hex."
+  id_length:
+    type: number
+    default: 8
+    description: "How many hex characters of the digest to use for the short identifier. 8 gives 4 billion values, which collides in practice around the birthday bound (~65k items); raise it for large catalogues."
+    range:
+      min: 4
+      max: 64
+
+outputs:
+  schema_version: "1.0"
+  description: "The digest record"
+  items:
+    - name: primary_output
+      type: json
+      description: "Digest, algorithm, byte count, and the derived short identifier"
+      required: true
+      mime_type: "application/json"
+      path_template: "content_hash/content_hash.json"
+
+# Inbound contract (verified IN). Stdlib hashlib only — no ffmpeg, no venv, nothing to install.
+requirements:
+  commands:
+    - python3
+
+# Outbound contract (verified OUT).
+#
+# This is the one component whose central claim can be checked perfectly, because a hash is
+# reproducible by anyone holding the bytes. So the contract does not read back a number this
+# component wrote and call that verification — `content_hash_matches` re-hashes the source
+# itself, in the verifier, and compares. If they disagree the step fails.
+#
+# That independence is the point. A digest is the substrate that release identity, catalogue
+# numbers and eventual signing all rest on; a component that hashed the wrong file or a
+# truncated read would emit an identifier that looks authoritative and means nothing, and no
+# structural assert could tell the difference.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, json_valid]
+      json_has: [algorithm, digest, bytes_hashed, short_id, source_name]
+  post_conditions:
+    - id: digest_reproduces_from_source
+      check: content_hash_matches
+      output: primary_output
+      digest_field: digest
+      algorithm_field: algorithm
+      description: "The verifier independently re-hashes the source file and requires the result to equal the recorded digest. Also refuses a zero-byte source, since a digest of nothing is not provenance."
+
+    - id: identifier_is_well_formed
+      check: json_fields_within
+      output: primary_output
+      require:
+        - "bytes_hashed > 0"
+        - "short_id is non_empty"
+        - "digest is non_empty"
+      description: "Structural sanity on the derived identifier. Weaker than the check above by design — it reads what the component wrote — and exists to catch an empty or absent id rather than to prove the digest."

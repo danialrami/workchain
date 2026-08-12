@@ -1,0 +1,96 @@
+name: normalization
+description: "LUFS audio normalization using FFmpeg loudnorm filter"
+version: "1.1"
+
+type: audio
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: audio
+
+params_schema:
+  target_lufs:
+    type: number
+    default: -11
+    description: "Target loudness in LUFS"
+    range:
+      min: -60
+      max: 0
+  two_pass:
+    type: boolean
+    default: true
+    description: "Use two-pass normalization for better accuracy"
+  lra:
+    type: number
+    default: 7
+    description: "Loudness Range (LRA) in LU"
+    range:
+      min: 1
+      max: 20
+  true_peak:
+    type: number
+    default: -1.5
+    description: "True Peak limit in dB"
+    range:
+      min: -10
+      max: 0
+  offset:
+    type: number
+    default: 0
+    description: "LU offset applied after two-pass correction (positive = hotter)"
+    range:
+      min: -6
+      max: 6
+
+# Outputs Schema (version 1.0)
+outputs:
+  schema_version: "1.0"
+  description: "Normalized audio output and loudness metadata"
+  items:
+    - name: primary_output
+      type: file
+      description: "Normalized audio file (WAV format)"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "{input_name}_normalized.{input_ext}"
+
+    - name: loudness_metadata
+      type: json
+      description: "LUFS values, LRA, True Peak measurements"
+      required: false
+      path_template: "logs/normalization.json"
+
+# Verification Contract (schema_version 1.0)
+# Turns "ran (exit 0)" into "proven correct" — checked by lib/workchain_verify.py
+# immediately after the component exits, via the engine's process_step hook and the
+# CLI run-component path. See docs (verifier-philosophy suite) for the full model.
+#
+# - outputs[].assert: per-output structural primitives (exists, non_empty, audio_valid, json_valid)
+# - outputs[].json_has: required keys inside a JSON output
+# - post_conditions[]: component-level numeric/relational checks with sensible tolerances
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+    - name: loudness_metadata
+      assert: [exists, non_empty, json_valid]
+      json_has: [target_lufs, final_lufs]
+  post_conditions:
+    - id: integrated_loudness_on_target
+      check: audio_lufs_within
+      output: primary_output
+      target_param: target_lufs
+      tolerance: 1.0
+      description: "Measured integrated LUFS of the normalized output must be within tolerance (LU) of the requested target. This is the gate that closes the 'measured but never compared' bug: the component recorded final_lufs and exited 0 regardless; the verifier independently re-measures and fails the step if it missed target."
+
+requirements:
+  commands:
+    - ffmpeg
+    - ffprobe

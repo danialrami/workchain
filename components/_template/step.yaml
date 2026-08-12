@@ -1,0 +1,118 @@
+# Component Definition
+# Copy this file to your new component directory and customize
+
+name: template
+description: "Template component - modify for your use case"
+version: "1.0"
+
+# Component type: audio, image, video, data, system
+type: audio
+
+# Supported input file types
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+# Output type produced (primary output type)
+output_type: audio
+
+# Parameters this component accepts
+params_schema:
+  # Example number parameter
+  example_param:
+    type: number
+    default: 100
+    description: "Example parameter with default value"
+    range:
+      min: 0
+      max: 200
+  
+  # Example boolean parameter
+  example_flag:
+    type: boolean
+    default: true
+    description: "Example flag parameter"
+  
+  # Example string parameter
+  example_string:
+    type: string
+    default: "default_value"
+    description: "Example string parameter"
+
+# Outputs Schema (version 1.0)
+# Defines what a component produces and how it appears in context.json
+#
+# Schema Design Philosophy:
+# - Each output is a named, typed artifact produced by the component
+# - Outputs are registered via register_output() in run.sh (see lib/common-utils.sh)
+# - The 'name' field should be a valid Python identifier (for context.json access)
+# - The reporting component uses this schema to know what to display
+# - Required outputs must be created for the step to be considered successful
+#
+# Standard context fields automatically added by register_output():
+#   - output: Primary output path (first output with type=file or type=directory)
+#   - output_dir: Directory containing all outputs
+#   - status: Step status (completed, skipped, failed)
+#   - outputs: Dict of all registered outputs with their metadata
+
+outputs:
+  schema_version: "1.0"
+  description: "Standardized output definitions for this component"
+  
+  items:
+    - name: primary_output
+      type: file                  # file, directory, json, number, string, boolean
+      description: "Primary output file"
+      required: true              # Step fails if this is not created
+      mime_type: "audio/wav"      # MIME type for file outputs (optional)
+      path_template: "output/{input_name}_template.{input_ext}"  # Relative path from output_dir
+      
+    - name: metadata
+      type: json
+      description: "Processing metadata (LUFS values, etc.)"
+      required: false
+      path_template: "logs/template_metadata.json"
+
+# ── Inbound contract (verified IN) ─────────────────────────────────────────────
+# What this component NEEDS. Enforced BEFORE run.sh by lib/workchain_preflight.py — a
+# missing dependency fails honestly (never a fake success). Declare only the classes you
+# use; each is optional. Full spec: docs/product/workchain/03-component-contract (KB).
+requirements:
+  commands:                      # PATH binaries (checked via `which`)
+    - ffmpeg
+  # python:                      # a component-local venv (heavy components)
+  #   venv: ".venv"
+  #   python_version: ">=3.10"
+  #   packages:
+  #     - { import: "numpy", dist: "numpy", version: ">=1.26" }
+  #     - "soundfile"            # shorthand: import name only
+  #   provision: "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+  # node:                        # node packages (checked via require.resolve)
+  #   packages: [ { require: "jdenticon", version: "^3" } ]
+  # models:                      # heavy artifacts (exists+size every run; sha256 only --deep)
+  #   - { name: "weights", path: "models/weights.bin", bytes: 12345678, sha256: "…" }
+  # env:                         # required env vars — presence only, never the value
+  #   - SOME_API_KEY
+
+# ── Outbound contract (verified OUT) ────────────────────────────────────────────
+# What this component GUARANTEES. Enforced AFTER run.sh by lib/workchain_verify.py.
+# Structural asserts per output + component-level post-conditions (metamorphic for
+# creative ops). Full spec: docs/product/workchain/03-component-contract (KB).
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+    - name: metadata
+      assert: [exists, non_empty, json_valid]
+      json_has: [example_param]
+  # post_conditions:
+  #   - id: duration_preserved
+  #     check: audio_duration_matches      # metamorphic: output duration ≈ source
+  #     outputs: [primary_output]
+  #     tolerance_s: 0.2

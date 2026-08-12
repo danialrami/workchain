@@ -1,0 +1,40 @@
+{
+  "input_file": "/tmp/test-input.wav",
+  "input_name": "test-input",
+  "input_ext": "wav",
+  "output_dir": "/tmp/test-output",
+  "chain_file": "/tmp/test-chain.yaml",
+  "chain_name": "test-chain",
+  "start_time": "2026-05-16T00:00:00Z",
+  "globals": {},
+  "steps": {
+    "normalization": {
+      "status": "completed",
+      "output": "/tmp/test-output/test-input_normalized.wav",
+      "output_dir": "/tmp/test-output",
+      "outputs": {
+        "primary_output": {
+          "path": "/tmp/test-output/test-input_normalized.wav",
+          "type": "file",
+          "exists": true,
+          "description": "Normalized audio file (WAV format)",
+          "path_template": "{input_name}_normalized.{input_ext}"
+        }
+      }
+    },
+    "catalog": {
+      "status": "completed",
+      "output": "/tmp/test-output/catalog/catalog_info.txt",
+      "output_dir": "/tmp/test-output/catalog",
+      "outputs": {
+        "primary_output": {
+          "path": "/tmp/test-output/catalog/catalog_info.txt",
+          "type": "file",
+          "exists": true,
+          "description": "Catalog information text file",
+          "path_template": "catalog/catalog_info.txt"
+        }
+      }
+    }
+  }
+}

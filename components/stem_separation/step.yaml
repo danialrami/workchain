@@ -1,0 +1,146 @@
+name: stem_separation
+description: "Source separation via python-audio-separator (UVR model zoo), selectable by a single `preset` knob. Default `hybrid` = two-stage RoFormer→Demucs: RoFormer-grade vocals + a full drums/bass/other split. Also demucs (4-stem), demucs6 (6-stem), roformer/mdx (2-stem), custom. Heavy component — runs in its own venv, not the light path."
+version: "2.0"
+
+type: audio
+
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: audio
+
+# Parameters. Precedence (step params > chain globals > default) is resolved by the
+# engine and passed as STEP_CONFIG; read here via get_param — never re-implement it.
+#
+# HOW TO SET THESE (per chain step or run-component):
+#   steps:
+#     - name: stem_separation
+#       params:
+#         preset: hybrid          # default; or demucs / demucs6 / roformer / mdx / custom
+#         primary_stem: vocals    # which stem the chain advances on
+#   run-component:  --params-json '{"preset":"demucs"}'
+# Override a preset's model(s): `model` (single presets / custom), or
+# `vocal_model` + `instrumental_model` (hybrid).
+params_schema:
+  preset:
+    type: string
+    default: "hybrid"
+    description: "Quality preset. hybrid (default)=RoFormer vocals + Demucs drums/bass/other (best 4-stem); demucs=htdemucs_ft 4-stem; demucs6=htdemucs_6s 6-stem; roformer=BS-RoFormer 2-stem (best vocals); mdx=MDX Inst_HQ_3 2-stem (fast); custom=set `model`."
+  model:
+    type: string
+    default: ""
+    description: "Single-model override (for demucs/demucs6/roformer/mdx/custom). Any `audio-separator --list_models` filename. Empty = use the preset's default model."
+  vocal_model:
+    type: string
+    default: ""
+    description: "hybrid stage-1 model (vocal isolation). Empty = preset default (model_bs_roformer_ep_317_sdr_12.9755.ckpt)."
+  instrumental_model:
+    type: string
+    default: ""
+    description: "hybrid stage-2 model (splits the instrumental into drums/bass/other). Empty = preset default (htdemucs_ft.yaml)."
+  primary_stem:
+    type: string
+    default: "vocals"
+    description: "Which produced stem becomes primary_output (the file the chain advances to). Falls back to the first stem if absent."
+  output_format:
+    type: string
+    default: "wav"
+    description: "Output audio format for the stems (wav keeps lossless intermediates for downstream mastering + exact recombination checks)."
+
+# Outputs Schema (version 1.0). Stem set is preset/model-driven; common names declared
+# for nice descriptions/paths, plus the always-present primary_output pointer and the
+# JSON provenance sidecar. Unlisted stems (guitar, piano, instrumental) are still
+# registered dynamically by run.sh.
+outputs:
+  schema_version: "1.0"
+  description: "Separated stems (preset/model-driven) + provenance metadata"
+  items:
+    - name: primary_output
+      type: file
+      description: "The stem selected by primary_stem (what the chain advances to)"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "{input_name}_vocals.wav"
+    - name: vocals
+      type: file
+      description: "Isolated vocal stem"
+      required: false
+      mime_type: "audio/wav"
+      path_template: "{input_name}_vocals.wav"
+    - name: drums
+      type: file
+      description: "Isolated drums stem"
+      required: false
+      mime_type: "audio/wav"
+      path_template: "{input_name}_drums.wav"
+    - name: bass
+      type: file
+      description: "Isolated bass stem"
+      required: false
+      mime_type: "audio/wav"
+      path_template: "{input_name}_bass.wav"
+    - name: other
+      type: file
+      description: "Isolated 'other' stem (everything not vocals/drums/bass)"
+      required: false
+      mime_type: "audio/wav"
+      path_template: "{input_name}_other.wav"
+    - name: instrumental
+      type: file
+      description: "Isolated instrumental stem (2-stem presets only)"
+      required: false
+      mime_type: "audio/wav"
+      path_template: "{input_name}_instrumental.wav"
+    - name: separation_metadata
+      type: json
+      description: "Preset, mode, model(s)/stages, stems, source input, measurements"
+      required: false
+      path_template: "logs/stem_separation.json"
+
+# Verification Contract (schema_version 1.0) — enforced by lib/workchain_verify.py
+# immediately after run.sh exits. Separation is a textbook "exit 0 but wrong" operator
+# (it always emits plausible stems), so the contract is metamorphic and
+# stem-count-agnostic: structural soundness + duration preserved + the stems must
+# DECOMPOSE the input (sum back to it). `auto` resolves to every registered stem file
+# (all file outputs except the primary_output pointer), so the SAME contract holds for
+# the hybrid, 2-, 4-, and 6-stem presets alike.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+    - name: separation_metadata
+      assert: [exists, non_empty, json_valid]
+      json_has: [preset, stems, source_input]
+  post_conditions:
+    - id: stems_preserve_duration
+      check: audio_duration_matches
+      outputs: auto
+      tolerance_s: 0.2
+      description: "Every produced stem must preserve the source duration (±0.2s). Guards silent/truncated/padded outputs a green exit would hide."
+    - id: stems_recombine_to_source
+      check: stems_recombine
+      stems: auto
+      max_residual_db: -9.0
+      description: "The stems must decompose the input: summing all stems must leave a residual at least 9 dB below the source. In hybrid mode the stage-2 residual vocals are folded into 'other' so this holds exactly. Catches a silent/duplicated/garbage/mismatched stem even though separation has no single right answer."
+
+requirements:
+  commands:
+    - ffmpeg
+    - ffprobe
+  python:
+    venv: ".venv"
+    python_version: ">=3.10"
+    packages:
+      - { import: "audio_separator", dist: "audio-separator" }
+    provision: "python3 -m venv .venv && .venv/bin/pip install 'audio-separator[cpu]' (use Python 3.10 — Demucs diffq has no cp311 wheel)"
+  # NOTE: model weights are auto-provisioned on first use by audio-separator and are
+  # preset-dependent (hybrid needs RoFormer + Demucs; mdx needs only the MDX .onnx), so they
+  # are intentionally NOT a hard preflight gate here. Exact-weights pinning (sha256 via the
+  # `models:` class) is a certified-tier concern — see docs/product/workchain/.

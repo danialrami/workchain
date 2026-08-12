@@ -1,0 +1,148 @@
+{
+  "components": [
+    {
+      "definition_hash": "sha256:fd2249f1ed9ed212ad42c89816b437fe2526c2445e58ebbd981dfbcc306a787d",
+      "description": "Audio quality analysis benchmark suite (format, loudness, DC offset, noise floor, spectral, phase, dynamics)",
+      "dir": "components/audio_benchmark",
+      "name": "audio_benchmark",
+      "params": [
+        "checks",
+        "expected_spec"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "text",
+      "verify": {
+        "asserts": [
+          "benchmark_report",
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:2799478c73134b4c1e67ffb319350be0b821132bb452a2594dc71d0a1c30cf92",
+      "description": "Content-addressed provenance: a reproducible cryptographic digest of the source audio, plus a short identifier derived from it",
+      "dir": "components/content_hash",
+      "name": "content_hash",
+      "params": [
+        "algorithm",
+        "id_prefix",
+        "id_length"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "digest_reproduces_from_source",
+          "identifier_is_well_formed"
+        ]
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:0fc889a9b2d11d99b9d40a559414f91d03821b62dcfe35b9528d7552d61f6326",
+      "description": "Audio format conversion using FFmpeg (powered by audioconv-cli logic)",
+      "dir": "components/format_conversion",
+      "name": "format_conversion",
+      "params": [
+        "target_format",
+        "preserve_quality",
+        "bitrate",
+        "sample_rate",
+        "bit_depth",
+        "channels"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "output_conforms_to_requested_format"
+        ]
+      },
+      "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:b53e6f9145b10e3a7d47e0fdbf29a51a624a362b26d4050d58ecf17eec82e480",
+      "description": "LUFS audio normalization using FFmpeg loudnorm filter",
+      "dir": "components/normalization",
+      "name": "normalization",
+      "params": [
+        "target_lufs",
+        "two_pass",
+        "lra",
+        "true_peak",
+        "offset"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output",
+          "loudness_metadata"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "integrated_loudness_on_target"
+        ]
+      },
+      "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:95cb940e4a820f3e6b613aae6adf9de5e8695bcc3b7405f489edd13de0b32dc0",
+      "description": "Source separation via python-audio-separator (UVR model zoo), selectable by a single `preset` knob. Default `hybrid` = two-stage RoFormer\u2192Demucs: RoFormer-grade vocals + a full drums/bass/other split. Also demucs (4-stem), demucs6 (6-stem), roformer/mdx (2-stem), custom. Heavy component \u2014 runs in its own venv, not the light path.",
+      "dir": "components/stem_separation",
+      "name": "stem_separation",
+      "params": [
+        "preset",
+        "model",
+        "vocal_model",
+        "instrumental_model",
+        "primary_stem",
+        "output_format"
+      ],
+      "requirements": [
+        "commands",
+        "python"
+      ],
+      "tier": "heavy",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output",
+          "separation_metadata"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "stems_preserve_duration",
+          "stems_recombine_to_source"
+        ]
+      },
+      "version": "2.0"
+    }
+  ],
+  "generated_by": "lib/workchain_registry.py",
+  "note": "GENERATED \u2014 do not hand-edit. Run `workchain_registry.py generate` (or CI) to refresh.",
+  "schema_version": "1.0"
+}

@@ -1,0 +1,21 @@
+name: "Test: Stem Separation → Normalize"
+description: "Context handoff: the hybrid preset's primary_output (vocals stem) is mastered to target LUFS by normalization. Both steps carry verify contracts."
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  lufs_target: -14
+
+steps:
+  - name: stem_separation
+    enabled: true
+    params:
+      preset: "hybrid"
+      primary_stem: "vocals"
+      output_format: "wav"
+
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true

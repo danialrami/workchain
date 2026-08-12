@@ -1,0 +1,19 @@
+# Test Chain: Normalization Only
+# Simple test to verify normalization component works
+
+name: "Test: Normalization Only"
+description: "Test chain for normalization component"
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  lufs_target: -14
+
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+      lra: 7
+      true_peak: -1.5

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Refuse to push a stale components/index.json.
+#
+# definition_hash covers EVERY file in a component directory — step.yaml, run.sh,
+# README.md, all of it. So touching anything inside components/<name>/ moves that
+# component's hash and the generated index has to catch up, or `registry check`
+# fails in CI after the push instead of here, before it.
+#
+# The index stays a reviewed, human-committed artifact on purpose: it is the
+# provenance substrate that catalog numbers and future ed25519 signatures rest on,
+# and a definition_hash moving in a PR diff is a signal worth seeing. This hook
+# removes the toil of *remembering*, not the gate itself — it never regenerates or
+# commits anything on your behalf.
+#
+# Install (from the repo root, once):
+#     git config core.hooksPath tools/hooks
+#
+# Bypass deliberately:  git push --no-verify
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+registry="$repo_root/lib/workchain_registry.py"
+
+# Not a workchain checkout (or a partial one) — nothing to enforce.
+[ -f "$registry" ] || exit 0
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "pre-push: python3 not found; skipping the registry freshness check." >&2
+  exit 0
+}
+
+if python3 "$registry" check "$repo_root" >/dev/null 2>&1; then
+  exit 0
+fi
+
+cat >&2 <<'MSG'
+
+  ✗ push refused — components/index.json is stale.
+
+    Something inside a component directory changed, so that component's
+    definition_hash moved and the generated index no longer matches the tree.
+    CI would fail on this after the push; this catches it before.
+
+    Fix:
+
+      node cli/bin/lufs-workchain.js registry generate
+      git add components/index.json
+      git commit -m "chore(registry): regenerate index"
+      git push
+
+    Never hand-edit index.json, and never hand-write a hash to make a gate pass.
+
+    To see exactly which component moved:
+      python3 lib/workchain_registry.py check .
+
+    Deliberate bypass (e.g. pushing a WIP branch you know is red):
+      git push --no-verify
+
+MSG
+exit 1

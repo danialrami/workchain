@@ -1,0 +1,48 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V10
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Virtual environments
+audio_pipeline_env/
+lufs_pipeline_env/
+venv/
+env/
+.venv/
+
+# Node modules and npm
+node_modules/
+npm-debug.log
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Test output directories (if any)
+test_output/
+
+# Output directories (CLI generated)
+output_*/
+my-mind-tests/
+
+# Session logs
+session-*.md
