@@ -320,7 +320,7 @@ process_step() {
     # steps.<name>.params, so the params must already be in context.json when preflight
     # reads it. Ordered the other way, every guard hit its fail-closed path and a
     # component's light code path was still forced to satisfy its heavy dependencies —
-    # e.g. embed_clap's remote backend demanding the 2GB torch venv it never loads.
+    # e.g. a component whose remote backend demands a heavy venv it never actually loads.
     # The verifier reads the same key post-run, so one write serves both bookends.
     record_step_params "$step_name" "$step_params"
 

@@ -569,7 +569,7 @@ def check_embedding_wellformed(pc, ctx, comp, step_yaml, output_paths):
     The structural asserts prove `vector` and `l2norm` are present. This proves the vector is
     USABLE: declared length, finite, not all zeros, and unit-norm when RECOMPUTED from the
     vector itself. The producer's own `l2norm` field is a CLAIM, not evidence — and on
-    embed_clap's `remote` backend the producer is a network service we did not run. A
+    a component's `remote` backend the producer is a network service we did not run. A
     component that writes valid-looking JSON full of garbage is exactly the "exited 0 but
     wrong" failure this file exists to refuse, and a bad vector is worse than a missing one
     because it flows silently into a 337 GB index and quietly rots retrieval.

@@ -51,7 +51,7 @@ DEFAULT_KEEP = 25
 LATEST = "latest.log"
 
 # The one pattern this module generates and the ONLY one it will ever delete.
-#   20260731T061203.481902Z-archive-ingest-a1b2c3.log
+#   20260731T061203.481902Z-deliverable-voice-a1b2c3.log
 # Microseconds are load-bearing, not decoration: several runs can start inside the same
 # second, and with only second precision the sort tiebreak fell to the random hex suffix —
 # which is not chronological, so "keep the newest 25" could delete a NEWER log than it kept.
