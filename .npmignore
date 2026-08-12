@@ -1,0 +1,15 @@
+lib/__pycache__/
+components/*/models/
+components/*/.venv/
+cli/test/
+cli/fixtures/
+cli/**/*.test.js
+cli/vitest.config.js
+ci/
+tools/
+docs/
+mcp-server/
+node_modules/
+**/__pycache__/
+**/*.pyc
+**/.venv/

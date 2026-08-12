@@ -22,6 +22,7 @@
   "bugs": {
     "url": "https://github.com/lufs-audio/workchain/issues"
   },
+  "private": true,
   "type": "module",
   "bin": {
     "workchain": "./bin/workchain.js"
@@ -45,11 +46,6 @@
     "test:watch": "vitest",
     "prepublishOnly": "npm run test"
   },
-  "files": [
-    "bin/",
-    "commands/",
-    "lib/"
-  ],
   "publishConfig": {
     "access": "public"
   }
