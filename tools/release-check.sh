@@ -296,10 +296,16 @@ fi
 # Cheap greps for the drift that embarrasses us publicly.
 say "8. Documentation sanity"
 # This script and PORTING.md legitimately name the strings they screen for.
-leaks=$(grep -rIl -E '\b(siku|klaxon|carnyx|tambora|kora|regalle|pandeiro|samvadini)\b|100\.[0-9]+\.[0-9]+\.[0-9]+|exe\.xyz|lufshq\.com|/Users/|/home/[a-z]|yourusername|localhost:[0-9]{4}/[a-z]|danialrami/' \
+# bare `embed` is matched as an identifier (standalone token), so it catches the
+# private embed component name without false-flagging English uses like "embed the
+# engine", "audio embeddings", or `embedding_wellformed` / `sass-embedded`.
+# LICENSING.md is excluded: it deliberately describes what is held back in the
+# community edition ("audio embeddings and archive indexing") in generic terms and
+# never by private repo/component name.
+leaks=$(grep -rIl -E '\b(siku|klaxon|carnyx|tambora|kora|regalle|pandeiro|samvadini|sound-archive|agent-knowledge|archive-index|archive_index|archive-ingest|embed_clap)\b|(^|[^[:alnum:]_])embed([^[:alnum:]_]|$)|100\.[0-9]+\.[0-9]+\.[0-9]+|exe\.xyz|lufshq\.com|/Users/|/home/[a-z]|yourusername|localhost:[0-9]{4}/[a-z]|danialrami/' \
     --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv . 2>/dev/null \
-    | grep -vE '^\./(docs/PORTING\.md|tools/release-check\.sh|ci/README\.md)$' || true)
-if [[ -z "$leaks" ]]; then ok "no internal hostnames, tailnet addresses or private repo references"
+    | grep -vE '^\./(docs/PORTING\.md|tools/release-check\.sh|ci/README\.md|LICENSING\.md)$' || true)
+if [[ -z "$leaks" ]]; then ok "no internal hostnames, tailnet addresses, private repo or personal config references"
 else bad "internal references present in: $(echo "$leaks" | tr '\n' ' ')"; fi
 
 for comp in components/*/; do
