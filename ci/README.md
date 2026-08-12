@@ -10,9 +10,19 @@ agent does not have the GitHub App `workflow` scope needed to commit directly to
 mkdir -p .github/workflows
 cp ci/verify.yml      .github/workflows/verify.yml
 cp ci/shellcheck.yml  .github/workflows/shellcheck.yml
+cp ci/publish.yml     .github/workflows/publish.yml
 git add .github/workflows/
 git commit -m "ci: install workflows from ci/"
 git push
+```
+
+The two copies must stay byte-identical, or the workflow that runs is not the workflow that
+was reviewed:
+
+```bash
+for f in ci/*.yml; do
+  cmp -s "$f" ".github/workflows/$(basename "$f")" || echo "DRIFT: $f"
+done
 ```
 
 ---
@@ -26,8 +36,8 @@ Runs on every push to `main` and every pull request.
 | Step | Gates? | What it checks |
 |---|---|---|
 | Install ffmpeg | yes (setup) | ffmpeg/ffprobe available for CLI and verifier |
-| `npm install` + `npm test` | yes | Node CLI unit tests (vitest) |
-| `tools/release-check.sh` | yes (if script exists) | Release-readiness checks written by orchestrator |
+| `npm ci` + `npm test` | yes | Frozen install from `cli/package-lock.json`, then Node CLI unit tests (vitest) |
+| `tools/release-check.sh` | **yes, unconditionally** | Every light chain end to end, plus the negative test proving the verifier still fails closed |
 | `registry check` | **yes** | `components/index.json` is not stale |
 | `validate all --strict` | **yes** | All chains pass strict YAML + schema validation |
 | `doctor` | **no** (informational) | Preflight across registry; stem_separation will fail on bare runner — see note |
@@ -40,16 +50,65 @@ or spending free-tier minutes downloading models on every PR. Instead, `doctor` 
 with `continue-on-error: true` so its output is visible in CI logs. Real light-component
 regressions are caught by `validate all --strict` and `registry check`.
 
+**Why `release-check.sh` is called unconditionally.** It used to be wrapped in
+`if [ -x tools/release-check.sh ]`, from when the script was still being written by a
+concurrent task. That guard made the most important gate in the repository **fail open**: if
+the file were missing, renamed, or had lost its executable bit — which happened four times,
+because pushing over the GitHub REST API resets the mode to `100644` — CI skipped
+verification entirely and reported green on an unverified tree. Confirmed by experiment:
+`chmod -x tools/release-check.sh` made the old guard take the "skip" branch and the job pass,
+while the current unconditional step exits `126`. Never reintroduce a conditional here.
+
 **Local equivalent:**
 
 ```bash
 sudo apt-get install -y ffmpeg
-cd cli && npm install && npm test
+cd cli && npm ci && npm test
 node cli/bin/workchain.js registry check
 node cli/bin/workchain.js validate all --strict
 node cli/bin/workchain.js doctor          # informational; stem_separation may fail
-bash tools/release-check.sh                    # if the file exists
+./tools/release-check.sh
 ```
+
+---
+
+### `publish.yml` — release to npm over OIDC
+
+Runs on a `v*` tag push, or manual dispatch (which **defaults to a dry run**).
+
+Publishes `@lufs-audio/workchain` to npmjs.com using **trusted publishing** — no npm token is
+stored anywhere. npm attaches a provenance attestation automatically, linking the published
+tarball to this repository, the commit and the workflow run.
+
+Every gate runs *before* the publish, in this order, and all of them fail closed:
+
+| Step | What it stops |
+|---|---|
+| npm CLI `>= 11.5.1` | An npm too old to attempt the OIDC exchange, which fails looking exactly like missing credentials |
+| Tag matches `package.json` | `v0.1.1` shipping `0.1.0`'s bytes — the registry believes the manifest, not the tag |
+| `npm ci` | Unfrozen dependency resolution in a release build |
+| `tools/release-check.sh` | An unverified tree reaching the registry |
+| `registry check` | A stale `components/index.json` |
+| `validate all --strict` | A chain that does not parse |
+| `npm pack --dry-run` | An unexamined tarball |
+
+Then it asks the registry whether that exact version already exists and **skips the publish
+with a notice** rather than failing. This makes a re-run idempotent, and makes it safe to push
+`v0.1.0` after publishing `0.1.0` by hand.
+
+**The first release cannot use this workflow.** A Trusted Publisher is configured in the
+*package's own* settings on npmjs.com, so the package must exist before those settings do.
+`0.1.0` is published manually per [`docs/PUBLISHING.md`](../docs/PUBLISHING.md); this workflow
+takes over from `0.1.1`.
+
+**Things that break OIDC in misleading ways**, all documented in the workflow header: a
+missing `id-token: write`; a self-hosted runner; npm below 11.5.1; a `NODE_AUTH_TOKEN` that is
+present but **empty**; the trusted-publisher workflow field entered as a path rather than a
+bare filename; and a `repository.url` mismatch, which fails provenance signing with a `422`.
+
+**Actions here are pinned by commit SHA, not tag** — unlike the rest of `ci/`. This workflow
+holds `id-token: write`, so a mutable tag on a third-party action would be a route to an OIDC
+token that can publish under our name.
 
 ---
 
@@ -69,11 +128,11 @@ and the `audio_benchmark` helper scripts.
 | SC1091 / SC1090 | Scripts source siblings via runtime variables (`$WORKCHAIN_ROOT`, `$LIB_DIR`, `$COMPONENT_DIR`). shellcheck cannot resolve dynamic paths. Correct by design. |
 | SC2094 | False positive from engine using a dedicated fd (`done 3< "$plan_file"`) for step iteration. |
 
-**SC2296 is NOT excluded.** There is a genuine error in `engine/yaml-parser.sh`
-line 86 where `${空格}` (Chinese characters, not a valid Bash variable) is used in
-a regex. This causes the pattern to silently expand to `${}`  and match too broadly.
-The shellcheck workflow will fail on this file until the bug is fixed. Do not suppress
-SC2296 to get a green run.
+**SC2296 is NOT excluded**, and it earned its keep. It caught a genuine bug in
+`engine/yaml-parser.sh`: a regex written as `name:${空格}(.+)$`, where those two characters are
+not a valid Bash identifier, so the expansion produced nothing and the pattern matched far too
+broadly. It is now `name:[[:space:]]*(.+)$` and the workflow passes. Keep SC2296 enabled — and
+if it fires again, fix the script rather than suppressing the rule.
 
 **Local equivalent:**
 

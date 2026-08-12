@@ -1,0 +1,194 @@
+# ci/publish.yml — publish @lufs-audio/workchain to npm over OIDC, after the gate passes.
+#
+# Guards, in order. Every one is fail-closed; none may gain continue-on-error:
+#   1. npm CLI >= 11.5.1          — older npm never attempts the OIDC exchange at all
+#   2. tag matches package.json   — stops v0.1.1 shipping 0.1.0's bytes
+#   3. frozen install (npm ci)    — the lockfile is the input, not a suggestion
+#   4. tools/release-check.sh     — the real gate: every light chain end to end, plus the
+#                                   negative test that proves the verifier still fails closed
+#   5. registry freshness         — components/index.json must not be stale
+#   6. strict chain validation
+#   7. npm pack --dry-run         — the tarball is inspected before it is published
+#
+# Only then does it publish. Build once, verify fail-closed, publish — the same one-gate
+# ethic the rest of the fleet uses.
+#
+# Triggers: push of a v* tag, or manual dispatch (which defaults to a dry run).
+#
+# AUTHENTICATION — read this before editing:
+#   This workflow stores NO npm token. It authenticates by OIDC ("trusted publishing"),
+#   which requires ALL of the following, and fails in misleading ways if any is missing:
+#
+#     - `id-token: write` permission                     (below)
+#     - a GitHub-HOSTED runner                           — self-hosted is unsupported, so this
+#                                                          one workflow cannot move to the
+#                                                          LUFS fleet
+#     - npm CLI >= 11.5.1                                — hence node-version 24; Node 22 ships
+#                                                          npm 10, which fails looking exactly
+#                                                          like plain missing credentials
+#     - NO `NODE_AUTH_TOKEN` on the publish step         — npm only falls back to OIDC when it
+#                                                          finds no token, and an EMPTY string
+#                                                          still counts as a token
+#     - a Trusted Publisher configured on npmjs.com      — package settings -> Trusted Publisher
+#                                                          -> GitHub Actions, with organisation
+#                                                          `lufs-audio`, repository `workchain`,
+#                                                          workflow filename `publish.yml`
+#                                                          (FILENAME ONLY, not a path; all
+#                                                          fields case-sensitive)
+#     - `repository.url` in package.json matching this   — a mismatch fails provenance
+#                                                          signing with a 422
+#
+#   Do NOT add `--provenance`. Trusted publishing generates a provenance attestation by
+#   default; the flag is redundant. Do NOT set publishConfig.provenance either — provenance
+#   is only obtainable from a cloud runner, so declaring it would break a manual publish
+#   from a laptop.
+#
+# ORDERING — the first release cannot use this workflow:
+#   A Trusted Publisher is configured in the PACKAGE's own settings on npmjs.com, so the
+#   package has to exist before those settings exist. 0.1.0 is published by hand (see
+#   docs/PUBLISHING.md). This workflow takes over from 0.1.1 onward.
+#
+#   Because of that, the version guard below would fail a re-run on an already-published
+#   version. It does not: the workflow checks the registry first and skips the publish with
+#   a notice instead of erroring. Pushing v0.1.0 after publishing 0.1.0 by hand is therefore
+#   safe, and re-running a release is idempotent.
+#
+# Local equivalent (everything except the publish itself):
+#   sudo apt-get install -y ffmpeg
+#   cd cli && npm ci && cd ..
+#   ./tools/release-check.sh
+#   node cli/bin/workchain.js registry check
+#   node cli/bin/workchain.js validate all --strict
+#   npm pack --dry-run
+#
+# Actions are pinned by commit SHA, not tag. This workflow holds `id-token: write`, so a
+# mutable tag on a third-party action would be a path to an OIDC token that can publish
+# under our name. The rest of ci/ pins by tag; here it is not worth the convenience.
+
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run every gate and pack the tarball, but do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC; without it npm cannot authenticate
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest # MUST be GitHub-hosted — OIDC is unsupported on self-hosted runners
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install system dependencies (ffmpeg)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24' # ships npm 11.x; OIDC needs >= 11.5.1
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never cache in a release build
+
+      # GATE: an npm too old for OIDC fails as though the credentials were simply missing,
+      # which sends you looking in the wrong place entirely. Say so up front.
+      - name: Require an npm that can publish over OIDC
+        run: |
+          set -euo pipefail
+          have="$(npm --version)"
+          echo "npm $have"
+          node -e '
+            const need = [11, 5, 1];
+            const have = process.argv[1].split("-")[0].split(".").map(Number);
+            for (let i = 0; i < 3; i++) {
+              if ((have[i] || 0) > need[i]) process.exit(0);
+              if ((have[i] || 0) < need[i]) {
+                console.error(
+                  "npm " + process.argv[1] + " cannot do trusted publishing; need >= 11.5.1.\n" +
+                  "Bump node-version, or add: npm install -g npm@latest"
+                );
+                process.exit(1);
+              }
+            }
+          ' "$have"
+
+      # GATE: the tag is the release's name; package.json is what actually ships. If they
+      # disagree, one of them is lying and the registry will believe the manifest.
+      - name: Tag must match the manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(node -p "require('./package.json').version")"
+          echo "tag=$tag  manifest=$manifest"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag v$tag does not match package.json version $manifest"
+            exit 1
+          fi
+
+      - name: Install Node dependencies (frozen)
+        run: cd cli && npm ci
+
+      # GATE: the real one. Runs every light chain end to end and confirms each step's
+      # verification record says verified — and confirms the verifier still FAILS on a chain
+      # that misses its target. Never make this conditional: a gate that skips when its
+      # script is absent or loses its executable bit reports green on an unverified tree.
+      - name: Release check
+        run: ./tools/release-check.sh
+
+      - name: Check registry freshness
+        run: node cli/bin/workchain.js registry check
+
+      - name: Validate all chains (strict)
+        run: node cli/bin/workchain.js validate all --strict
+
+      - name: Inspect the tarball
+        run: npm pack --dry-run
+
+      # Idempotence: npm rejects republishing a version, which would turn a harmless re-run
+      # or a tag pushed after a manual publish into a red build. Ask the registry instead.
+      - name: Is this version already on the registry?
+        id: state
+        run: |
+          set -uo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is already published"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is not on the registry yet"
+          fi
+
+      # No `env: NODE_AUTH_TOKEN` here, deliberately. Its presence — even empty — stops npm
+      # falling back to OIDC. Provenance is attached automatically; do not add --provenance.
+      - name: Publish
+        if: steps.state.outputs.already == 'false' && github.event.inputs.dry_run != 'true'
+        run: npm publish --access public
+
+      - name: Publish skipped
+        if: steps.state.outputs.already == 'true' || github.event.inputs.dry_run == 'true'
+        run: |
+          if [ "${{ steps.state.outputs.already }}" = "true" ]; then
+            echo "::notice::${{ steps.state.outputs.name }}@${{ steps.state.outputs.version }} is already published — nothing to do. Every gate above still ran."
+          else
+            echo "::notice::Dry run — every gate passed and the tarball was inspected, but nothing was published."
+          fi
