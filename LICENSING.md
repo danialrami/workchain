@@ -34,7 +34,7 @@ Apache-2.0 covers *our implementation*. It is not a claim on the idea of a verif
 | | |
 | --- | --- |
 | `engine/` | The Bash execution engine: preflight → `run.sh` → verify |
-| `cli/` | The Node CLI (`@lufs/workchain`) |
+| `cli/` | The Node CLI (`@lufs-audio/workchain`) |
 | `mcp-server/` | The Python MCP server (FastMCP) |
 | `lib/` | The single parser/resolver, the preflight checker, the **verifier**, the registry generator |
 | `components/` | The light components: normalization, format conversion, benchmarking, cataloguing, plus the scaffold template |

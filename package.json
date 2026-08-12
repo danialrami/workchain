@@ -1,5 +1,5 @@
 {
-  "name": "@lufs/workchain",
+  "name": "@lufs-audio/workchain",
   "version": "0.1.0",
   "description": "Agent-first CLI for LUFS Workchain: compose verified audio processing steps into YAML chains",
   "keywords": [

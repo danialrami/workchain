@@ -1,7 +1,7 @@
 # LUFS Workchain
 
 > An agent-first audio processing engine. Compose self-contained **components** into YAML
-> **chains** and run them over any interface — a Node CLI (`@lufs/workchain`), a FastMCP
+> **chains** and run them over any interface — a Node CLI (`@lufs-audio/workchain`), a FastMCP
 > server, or the Bash engine directly. One shared parser (`lib/workchain_yaml.py`) backs all
 > three, so an AI agent gets identical schemas and behavior no matter which door it walks
 > through.
@@ -44,7 +44,7 @@ workchain chains --json               # prebuilt chains and the components they 
 workchain run <chain> <input> --dry-run --json   # preview the plan, then drop --dry-run to execute
 ```
 
-## Commands (CLI — `@lufs/workchain`)
+## Commands (CLI — `@lufs-audio/workchain`)
 
 - `run <chain> <input> [-o dir] [--timeout <s>] [--json] [--report] [--dry-run]` — execute a
   chain (or preview it).

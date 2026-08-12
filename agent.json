@@ -16,7 +16,7 @@
   "interfaces": [
     {
       "type": "cli",
-      "package": "@lufs/workchain",
+      "package": "@lufs-audio/workchain",
       "entry": "workchain",
       "install": "cd cli && npm install && npm link",
       "io": {
