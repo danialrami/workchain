@@ -1,5 +1,24 @@
 import chalk from 'chalk';
 
+// The run banner is a fixed-width box. The border and the rows are derived from ONE
+// number so they cannot drift apart: previously each row appended a hard-coded run of
+// spaces, so the right-hand border only lined up if the chain name happened to be
+// exactly the length the author's test case had. `tests/content_hash_test` measured 51
+// columns against a 41-column border. Chain and input names are caller data of unbounded
+// length, so the width has to be computed, and over-long text truncated rather than
+// allowed to blow the box open.
+const BOX_INNER = 37;
+const BOX_TOP = '  ╭' + '─'.repeat(BOX_INNER) + '╮';
+const BOX_BOTTOM = '  ╰' + '─'.repeat(BOX_INNER) + '╯';
+
+function boxRow(text) {
+  const field = BOX_INNER - 2; // two spaces of inset inside the left border
+  const chars = [...String(text)];
+  const t = chars.length > field ? chars.slice(0, field - 1).join('') + '…' : chars.join('');
+  const padded = t + ' '.repeat(field - [...t].length);
+  return chalk.bold(`  │  ${padded}│`);
+}
+
 export function formatResult(result, options = {}) {
   if (options.json) {
     return JSON.stringify(result, null, 2);
@@ -55,11 +74,11 @@ function formatHuman(result) {
   }
 
   lines.push('');
-  lines.push(chalk.bold('  ╭─────────────────────────────────────╮'));
-  lines.push(chalk.bold(`  │  LUFS Workchain`) + `                     ${chalk.bold('│')}`);
-  lines.push(chalk.bold(`  │  Chain: ${result.chain || 'unknown'}`) + `               ${chalk.bold('│')}`);
-  lines.push(chalk.bold(`  │  Input: ${result.input_name || ''}.${result.input_ext || ''}`) + `               ${chalk.bold('│')}`);
-  lines.push(chalk.bold('  ╰─────────────────────────────────────╯'));
+  lines.push(chalk.bold(BOX_TOP));
+  lines.push(boxRow('LUFS Workchain'));
+  lines.push(boxRow(`Chain: ${result.chain || 'unknown'}`));
+  lines.push(boxRow(`Input: ${result.input_name || ''}.${result.input_ext || ''}`));
+  lines.push(chalk.bold(BOX_BOTTOM));
   lines.push('');
   lines.push(chalk.bold('  Executing steps...'));
 
