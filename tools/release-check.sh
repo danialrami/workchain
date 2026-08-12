@@ -331,6 +331,15 @@ if [[ -f LICENSE && -f agent.json ]]; then
         "Apache License:Apache-2.0"|"MIT License:MIT") ok "agent.json licence ($lic_decl) matches LICENSE ($lic_file)" ;;
         *) bad "agent.json declares '$lic_decl' but LICENSE is '$lic_file'" ;;
     esac
+    # cli/package.json is the file npm publishes, so a wrong licence there is the one that
+    # ships. It declared MIT while LICENSE was Apache-2.0 and this gate never looked at it.
+    if [[ -f cli/package.json ]]; then
+        pkg_decl=$(python3 -c "import json;print(json.load(open('cli/package.json')).get('license',''))" 2>/dev/null)
+        case "$lic_file:$pkg_decl" in
+            "Apache License:Apache-2.0"|"MIT License:MIT") ok "cli/package.json licence ($pkg_decl) matches LICENSE" ;;
+            *) bad "cli/package.json declares '$pkg_decl' but LICENSE is '$lic_file' — this is the licence npm would publish" ;;
+        esac
+    fi
 fi
 
 # Internal branch names have no business in a public tree.
