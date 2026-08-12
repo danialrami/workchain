@@ -1,18 +1,67 @@
 {
-  "name": "workchain-dependencies",
-  "version": "1.0.0",
-  "description": "Audio workchain project dependencies",
-  "private": true,
-  "dependencies": {
-    "cdp-wasm": "^0.5.3",
-    "jdenticon": "^3.3.0"
+  "name": "@lufs/workchain",
+  "version": "0.1.0",
+  "description": "Agent-first CLI for LUFS Workchain: compose verified audio processing steps into YAML chains",
+  "keywords": [
+    "audio",
+    "lufs",
+    "normalization",
+    "ffmpeg",
+    "music-production",
+    "sound-design",
+    "agent"
+  ],
+  "license": "Apache-2.0",
+  "author": "LUFS Audio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lufs-audio/workchain.git"
   },
-  "scripts": {
-    "postinstall": "echo 'Dependencies installed successfully'",
-    "test-jdenticon": "node -e \"console.log('jdenticon test:', require('jdenticon'))\""
+  "homepage": "https://github.com/lufs-audio/workchain#readme",
+  "bugs": {
+    "url": "https://github.com/lufs-audio/workchain/issues"
+  },
+  "type": "module",
+  "bin": {
+    "workchain": "cli/bin/workchain.js"
   },
   "engines": {
-    "node": ">=20.17.0 || >=22.9.0",
-    "npm": ">=10.0.0"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0",
+    "execa": "^8.0.0",
+    "conf": "^12.0.0",
+    "globby": "^14.0.0",
+    "split2": "^4.2.0"
+  },
+  "optionalDependencies": {
+    "cdp-wasm": "^0.5.3"
+  },
+  "files": [
+    "cli/bin/",
+    "cli/commands/",
+    "cli/lib/",
+    "cli/package.json",
+    "engine/",
+    "lib/*.sh",
+    "lib/*.py",
+    "components/**/*.sh",
+    "components/**/*.yaml",
+    "components/**/*.js",
+    "components/**/*.mjs",
+    "components/**/*.json",
+    "components/**/*.md",
+    "chains/",
+    "agent.json",
+    "llms.txt",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
