@@ -105,9 +105,9 @@ cat components/index.json            # …or read the generated index directly
 ```
 
 There used to be a hand-written list in this spot. It was a second source of truth, and it
-drifted: it still named ten components while the registry held nineteen, silently omitting
-the entire archive-ingest family (probe, features, hook, embed, embed_clap, archive_index).
-Removed rather than corrected — an enumeration that *can* drift eventually *will*.
+drifted — it went stale the first time a component was added and silently under-reported what
+the registry actually held. Removed rather than corrected: an enumeration that *can* drift
+eventually *will*.
 
 ## Distribution model
 
