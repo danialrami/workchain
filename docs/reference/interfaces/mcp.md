@@ -152,7 +152,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_compo
 
 ```bash
 python mcp-server/server.py --transport streamable-http --port 9000 &
-curl -X POST http://localhost:9000/mcp \
+curl -X POST http://127.0.0.1:9000/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_components","arguments":{}}}'
 ```
