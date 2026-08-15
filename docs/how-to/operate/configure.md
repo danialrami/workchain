@@ -29,7 +29,7 @@ The config schema declares five keys:
 ### Set a value
 
 ```bash
-workchain config set workchainRoot /home/user/workchain
+workchain config set workchainRoot /path/to/workchain
 workchain config set server local
 ```
 
@@ -57,7 +57,7 @@ defaultChain: deliverable-voice
 outputDir: ./output
 concurrency: 1
 ---
-Config file: /home/user/.config/workchain-nodejs/config.json
+Config file: /path/to/.config/workchain-nodejs/config.json
 ```
 
 Machine-readable:
