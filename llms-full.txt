@@ -364,6 +364,242 @@ Pull requests are **not** currently accepted, on ownership grounds explained in
 and the audio was wrong." Licensing, and what is deliberately not published here, is in
 [`LICENSING.md`](./LICENSING.md).
 
+# Publishing @lufs-audio/workchain to npm
+
+This document describes how to publish the `@lufs-audio/workchain` package from the **repo root**.
+
+---
+
+## Prerequisites
+
+1. The repo must be **public** on GitHub before publishing. The npm package page links to
+   `https://github.com/lufs-audio/workchain`; publishing from a private repo is possible
+   but the README and repository links will 404 for consumers.
+
+2. The publishing scope is **`@lufs-audio`**, at parity with the GitHub organisation. The org
+   exists; nothing to do here.
+
+   `@lufs` was the original intent and is **already registered by someone else**, which is why
+   the package is `@lufs-audio/workchain`. Parity with the GitHub org is the better answer
+   anyway: the trusted-publisher configuration below keys on the GitHub organisation name, so
+   having the two match removes a class of mismatch.
+
+   **How to check whether a scope is free — and how not to.** Requesting package names under
+   a scope proves nothing. An org can be registered with **zero** published packages, in which
+   case every package name under it returns 404 and a registry search for the scope returns
+   `total: 0`. Both were true of `@lufs` at the moment it was already taken. The only reliable
+   check is attempting to create the org:
+
+   <https://www.npmjs.com/org/create>
+
+   **There is also no `npm org create`.** The CLI's `npm org` supports only `set`, `rm` and
+   `ls`; organisations are created in the browser. If you ever add members:
+
+   ```sh
+   npm team create lufs-audio:developers      # the team must exist before anyone is added
+   npm team add lufs-audio:developers <npm-username>
+   ```
+
+   A one-person org needs neither command — being the org owner is enough to publish.
+
+3. Authenticate with npm:
+
+   ```sh
+   npm login                    # opens browser for OAuth; or use npm login --auth-type=legacy
+   npm whoami                   # verify you are logged in
+   ```
+
+4. **If your account has 2FA set to "authorization and writes"**, the publish needs a
+   one-time code. Interactively `npm publish` prompts for it; in a non-interactive shell it
+   fails with `EOTP`, which reads like an auth failure rather than a missing code:
+
+   ```sh
+   npm publish --access public --otp=123456
+   ```
+
+   Leaving 2FA on writes is the right setting. Just have the authenticator open.
+
+---
+
+## Inspect before you ship
+
+From the repo root, generate and inspect the tarball without publishing:
+
+```sh
+npm pack --dry-run             # prints the full file list and sizes
+npm pack                       # writes lufs-audio-workchain-0.1.0.tgz
+tar -tzf lufs-audio-workchain-0.1.0.tgz | head -40
+```
+
+Confirm the list includes:
+- `package/engine/workchain-engine.sh`
+- `package/lib/common-utils.sh` and `package/lib/workchain_yaml.py`
+- `package/components/normalization/run.sh`
+- `package/chains/deliverable-voice.yaml`
+- `package/cli/bin/workchain.js`
+
+And does NOT include `node_modules/`, `__pycache__/`, `docs/`, `ci/`, `tools/`, `mcp-server/`,
+or any `.venv/` directory.
+
+Clean up afterwards: `rm lufs-audio-workchain-0.1.0.tgz`
+
+---
+
+## Publish
+
+Scoped npm packages default to **restricted** access. Always pass `--access public`:
+
+```sh
+npm publish --access public
+```
+
+If the `publishConfig.access` field in `package.json` is already `"public"` (it is), the
+flag is redundant but harmless and documents intent.
+
+---
+
+## Verify the published package
+
+Install into a clean, temporary directory to confirm the global install path works:
+
+```sh
+mkdir /tmp/wc-smoke && cd /tmp/wc-smoke
+npm install @lufs-audio/workchain          # or: npm install -g @lufs-audio/workchain
+node node_modules/@lufs-audio/workchain/cli/bin/workchain.js components --json
+```
+
+You should see a JSON array of available components. A `workchain config set workchainRoot`
+step is NOT required when the package is published from root — the binary's directory walk
+finds `engine/workchain-engine.sh` relative to its own location inside `node_modules/`.
+
+---
+
+## Tag the release
+
+After a successful publish:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+---
+
+## After 0.1.0: publish from CI with provenance
+
+**This cannot be used for the first release, and that is not a configuration mistake.** A
+trusted publisher is configured in the *package's* settings on npmjs.com, and the package has
+to exist before those settings exist. So `0.1.0` goes out by hand as described above, and
+everything after it can go out over OIDC with no token stored anywhere.
+
+Worth doing for `0.1.1`, because it is the supply-chain equivalent of what this project
+argues about audio: the registry stops taking our word for where the tarball came from and
+instead verifies it cryptographically. npm attaches a **provenance attestation** linking the
+published bytes to a specific commit and workflow run, and shows a verified badge on the
+package page.
+
+Once `0.1.0` is live:
+
+1. On npmjs.com → package settings → **Trusted Publisher** → GitHub Actions. Fields are
+   case-sensitive and exact: organisation `lufs-audio`, repository `workchain`, workflow
+   filename `publish.yml` (**filename only**, not `.github/workflows/publish.yml`).
+2. Add `.github/workflows/publish.yml` with `permissions: id-token: write` and **no**
+   `NODE_AUTH_TOKEN` on the publish step — npm only falls back to OIDC when it finds no
+   token, and an *empty* `NODE_AUTH_TOKEN` counts as a token.
+3. Pin `node-version: '24'`. Trusted publishing needs **npm CLI ≥ 11.5.1**; Node 22 ships
+   npm 10, which does not attempt the OIDC exchange at all and fails looking like a plain
+   auth error. If the runner must stay on an older Node, add `npm install -g npm@latest`
+   before the publish step.
+4. Do **not** add `--provenance`. Trusted publishing generates provenance by default; the
+   flag is redundant.
+
+Constraints worth knowing before relying on it:
+
+- **GitHub-hosted runners only.** Self-hosted is not supported, so this one workflow cannot
+  move to the LUFS fleet — the same reason `ci/` is GitHub-hosted for this repo.
+- **Public repository required** for provenance. Private source repos get trusted publishing
+  but no attestation.
+- **`repository.url` must match the publishing repo**, or the publish fails a signature check
+  with a `422`. Ours already points at `git+https://github.com/lufs-audio/workchain.git`.
+
+Do **not** set `publishConfig.provenance: true` in `package.json` before the manual first
+publish. Provenance is only obtainable from a cloud CI runner, so declaring it would make a
+publish from a laptop fail.
+
+---
+
+## Deprecate or unpublish
+
+If you need to pull a bad release within 72 hours of publishing:
+
+```sh
+npm unpublish @lufs-audio/workchain@0.1.0 --force
+```
+
+After 72 hours, unpublish is blocked by npm policy. Use deprecation instead:
+
+```sh
+npm deprecate @lufs-audio/workchain@0.1.0 "This release has a critical bug; use 0.1.1"
+```
+
+Users will see the deprecation warning on install but the package remains accessible.
+
+---
+
+## Notes
+
+- The `cli/package.json` is marked `"private": true` and exists only as a workspace manifest
+  and as the version source read by `cli/bin/workchain.js` at runtime. Do not publish from
+  inside `cli/`. The canonical publish path is always the repo root.
+- The `components/*/.venv/` and `lib/__pycache__/` directories are excluded by the `files`
+  glob patterns in the root `package.json` (not by `.npmignore`, due to an npm ≥ 10 behaviour
+  where explicit `files` entries bypass `.npmignore` for subdirectories). The `.npmignore`
+  file is still present for defence-in-depth.
+
+# Workchain Documentation
+
+This is the documentation index for [LUFS Workchain](https://github.com/lufs-audio/workchain), a YAML-driven, agent-first audio processing engine where "it worked" means proven correct, not merely exited zero.
+
+## Diátaxis map
+
+| Type | Path | What it is |
+|---|---|---|
+| **Tutorials** | `docs/tutorials/` | Guided learning: first chain, write a component, drive as an agent |
+| **How-to**: operate | `docs/how-to/operate/` | Install, run chains/components, inspect results, provision heavy, use shipped chains |
+| **How-to**: author | `docs/how-to/author/` | Write chains, write components with verify contracts, publish your own |
+| **Reference**: interfaces | `docs/reference/interfaces/` | CLI, MCP, and Bash engine command references |
+| **Reference**: contracts | `docs/reference/contracts/` | Verify checks catalog, requirements classes, context.json |
+| **Explanations** | `docs/explanation/` | Architecture, verification philosophy, agent-first design |
+| **Case studies** | `docs/case-studies/` | Component war stories — shipped bugs, contract design, measured verification |
+| **FAQ** | `docs/faq.md` | Frequently asked questions (operators, authors, agents) |
+| **Troubleshooting** | `docs/troubleshooting.md` | Common failures: verification reads, preflight, YAML gotchas, provisioning |
+
+## Reading paths
+
+- **New user**: README.md → `docs/tutorials/01-first-chain.md` → `docs/tutorials/02-write-a-component.md`
+- **Operator**: `docs/how-to/operate/install.md` → `docs/how-to/operate/run-chains.md` → `docs/how-to/operate/inspect-a-run.md` → `docs/reference/interfaces/cli.md`
+- **Author**: `docs/format.md` → `docs/how-to/author/author-a-component.md` → `docs/how-to/author/write-a-verify-block.md` → `docs/reference/contracts/verify-checks.md`
+- **Agent (AI)**: `llms.txt` → `agent.json` → `docs/explanation/agent-first.md` → `docs/tutorials/03-drive-workchain-as-an-agent.md` → `docs/reference/interfaces/mcp.md`
+- **Component consumer**: `workchain components --json` → `docs/case-studies/*.md` → the component's own `README.md`
+
+## Canonical source docs (not part of the Diátaxis tree)
+
+| Path | Purpose |
+|---|---|
+| `README.md` | Project overview, architecture, quickstart |
+| `AGENTS.md` | Contract model, build commands, and conventions for AI coding agents |
+| `llms.txt` | Machine-readable docs index (for LLM/agent retrieval) |
+| `docs/format.md` | Formal specification of chain YAML and step.yaml |
+| `docs/PUBLISHING.md` | npm publishing procedure |
+
+## Docs conventions (for contributors)
+
+- **Frontmatter**: every page under `docs/` carries `title`, `description`, and `type` (one of: `tutorial`, `how-to`, `reference`, `explanation`, `case-study`, `faq`, `troubleshooting`).
+- **Voice**: match the repo — terse, opinionated, honest about failure. Active voice, direct address, imperative steps, short sentences.
+- **Agent-readiness**: every page opens naming the product+surface; headings are answer-shaped; code blocks are copy-paste units with real responses shown; failure modes are documented.
+- **Measurements**: never invent. Every measured value in case studies is quoted verbatim from the component README it analyzes, with provenance noted.
+- **Links**: relative paths within the repo. Every link must resolve at PR time. Link to canonical sources (README, AGENTS.md, format.md, component READMEs) rather than duplicating their content.
+- **Tools**: documentation health is checked by `tools/doc-check.sh` (link resolution, llms.txt freshness, frontmatter completeness, license consistency). Run it before submitting a docs PR.
 ---
 title: "audio_benchmark: measures, does not gatekeep"
 description: "Seven independent checks file a report; a failed check marks the run completed_with_errors rather than lying about a clean success. Verify validates the report's shape, not its content."
@@ -2578,7 +2814,7 @@ proof. This page is about turning "ran (exit 0)" into "proven correct."
 
 The check vocabulary lives in two places: the canonical reference is
 [`docs/format.md`](../../format.md) (the `verify` section, with every registered check and its
-keys); the contracts reference at [`docs/reference/contracts/`](../../../reference/contracts/) is
+keys); the contracts reference at [`docs/reference/contracts/`](../../reference/contracts/) is
 its companion catalog. Read the docstrings in `lib/workchain_verify.py` before choosing —
 parameter names are per-check and are not guessable.
 
@@ -3753,242 +3989,6 @@ are valid chains you can run:
 
 - [Run Chains](./run-chains.md) — the run command and flags.
 - [Inspect a Run](./inspect-a-run.md) — how to verify a run really delivered the spec.
-# Publishing @lufs-audio/workchain to npm
-
-This document describes how to publish the `@lufs-audio/workchain` package from the **repo root**.
-
----
-
-## Prerequisites
-
-1. The repo must be **public** on GitHub before publishing. The npm package page links to
-   `https://github.com/lufs-audio/workchain`; publishing from a private repo is possible
-   but the README and repository links will 404 for consumers.
-
-2. The publishing scope is **`@lufs-audio`**, at parity with the GitHub organisation. The org
-   exists; nothing to do here.
-
-   `@lufs` was the original intent and is **already registered by someone else**, which is why
-   the package is `@lufs-audio/workchain`. Parity with the GitHub org is the better answer
-   anyway: the trusted-publisher configuration below keys on the GitHub organisation name, so
-   having the two match removes a class of mismatch.
-
-   **How to check whether a scope is free — and how not to.** Requesting package names under
-   a scope proves nothing. An org can be registered with **zero** published packages, in which
-   case every package name under it returns 404 and a registry search for the scope returns
-   `total: 0`. Both were true of `@lufs` at the moment it was already taken. The only reliable
-   check is attempting to create the org:
-
-   <https://www.npmjs.com/org/create>
-
-   **There is also no `npm org create`.** The CLI's `npm org` supports only `set`, `rm` and
-   `ls`; organisations are created in the browser. If you ever add members:
-
-   ```sh
-   npm team create lufs-audio:developers      # the team must exist before anyone is added
-   npm team add lufs-audio:developers <npm-username>
-   ```
-
-   A one-person org needs neither command — being the org owner is enough to publish.
-
-3. Authenticate with npm:
-
-   ```sh
-   npm login                    # opens browser for OAuth; or use npm login --auth-type=legacy
-   npm whoami                   # verify you are logged in
-   ```
-
-4. **If your account has 2FA set to "authorization and writes"**, the publish needs a
-   one-time code. Interactively `npm publish` prompts for it; in a non-interactive shell it
-   fails with `EOTP`, which reads like an auth failure rather than a missing code:
-
-   ```sh
-   npm publish --access public --otp=123456
-   ```
-
-   Leaving 2FA on writes is the right setting. Just have the authenticator open.
-
----
-
-## Inspect before you ship
-
-From the repo root, generate and inspect the tarball without publishing:
-
-```sh
-npm pack --dry-run             # prints the full file list and sizes
-npm pack                       # writes lufs-audio-workchain-0.1.0.tgz
-tar -tzf lufs-audio-workchain-0.1.0.tgz | head -40
-```
-
-Confirm the list includes:
-- `package/engine/workchain-engine.sh`
-- `package/lib/common-utils.sh` and `package/lib/workchain_yaml.py`
-- `package/components/normalization/run.sh`
-- `package/chains/deliverable-voice.yaml`
-- `package/cli/bin/workchain.js`
-
-And does NOT include `node_modules/`, `__pycache__/`, `docs/`, `ci/`, `tools/`, `mcp-server/`,
-or any `.venv/` directory.
-
-Clean up afterwards: `rm lufs-audio-workchain-0.1.0.tgz`
-
----
-
-## Publish
-
-Scoped npm packages default to **restricted** access. Always pass `--access public`:
-
-```sh
-npm publish --access public
-```
-
-If the `publishConfig.access` field in `package.json` is already `"public"` (it is), the
-flag is redundant but harmless and documents intent.
-
----
-
-## Verify the published package
-
-Install into a clean, temporary directory to confirm the global install path works:
-
-```sh
-mkdir /tmp/wc-smoke && cd /tmp/wc-smoke
-npm install @lufs-audio/workchain          # or: npm install -g @lufs-audio/workchain
-node node_modules/@lufs-audio/workchain/cli/bin/workchain.js components --json
-```
-
-You should see a JSON array of available components. A `workchain config set workchainRoot`
-step is NOT required when the package is published from root — the binary's directory walk
-finds `engine/workchain-engine.sh` relative to its own location inside `node_modules/`.
-
----
-
-## Tag the release
-
-After a successful publish:
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
----
-
-## After 0.1.0: publish from CI with provenance
-
-**This cannot be used for the first release, and that is not a configuration mistake.** A
-trusted publisher is configured in the *package's* settings on npmjs.com, and the package has
-to exist before those settings exist. So `0.1.0` goes out by hand as described above, and
-everything after it can go out over OIDC with no token stored anywhere.
-
-Worth doing for `0.1.1`, because it is the supply-chain equivalent of what this project
-argues about audio: the registry stops taking our word for where the tarball came from and
-instead verifies it cryptographically. npm attaches a **provenance attestation** linking the
-published bytes to a specific commit and workflow run, and shows a verified badge on the
-package page.
-
-Once `0.1.0` is live:
-
-1. On npmjs.com → package settings → **Trusted Publisher** → GitHub Actions. Fields are
-   case-sensitive and exact: organisation `lufs-audio`, repository `workchain`, workflow
-   filename `publish.yml` (**filename only**, not `.github/workflows/publish.yml`).
-2. Add `.github/workflows/publish.yml` with `permissions: id-token: write` and **no**
-   `NODE_AUTH_TOKEN` on the publish step — npm only falls back to OIDC when it finds no
-   token, and an *empty* `NODE_AUTH_TOKEN` counts as a token.
-3. Pin `node-version: '24'`. Trusted publishing needs **npm CLI ≥ 11.5.1**; Node 22 ships
-   npm 10, which does not attempt the OIDC exchange at all and fails looking like a plain
-   auth error. If the runner must stay on an older Node, add `npm install -g npm@latest`
-   before the publish step.
-4. Do **not** add `--provenance`. Trusted publishing generates provenance by default; the
-   flag is redundant.
-
-Constraints worth knowing before relying on it:
-
-- **GitHub-hosted runners only.** Self-hosted is not supported, so this one workflow cannot
-  move to the LUFS fleet — the same reason `ci/` is GitHub-hosted for this repo.
-- **Public repository required** for provenance. Private source repos get trusted publishing
-  but no attestation.
-- **`repository.url` must match the publishing repo**, or the publish fails a signature check
-  with a `422`. Ours already points at `git+https://github.com/lufs-audio/workchain.git`.
-
-Do **not** set `publishConfig.provenance: true` in `package.json` before the manual first
-publish. Provenance is only obtainable from a cloud CI runner, so declaring it would make a
-publish from a laptop fail.
-
----
-
-## Deprecate or unpublish
-
-If you need to pull a bad release within 72 hours of publishing:
-
-```sh
-npm unpublish @lufs-audio/workchain@0.1.0 --force
-```
-
-After 72 hours, unpublish is blocked by npm policy. Use deprecation instead:
-
-```sh
-npm deprecate @lufs-audio/workchain@0.1.0 "This release has a critical bug; use 0.1.1"
-```
-
-Users will see the deprecation warning on install but the package remains accessible.
-
----
-
-## Notes
-
-- The `cli/package.json` is marked `"private": true` and exists only as a workspace manifest
-  and as the version source read by `cli/bin/workchain.js` at runtime. Do not publish from
-  inside `cli/`. The canonical publish path is always the repo root.
-- The `components/*/.venv/` and `lib/__pycache__/` directories are excluded by the `files`
-  glob patterns in the root `package.json` (not by `.npmignore`, due to an npm ≥ 10 behaviour
-  where explicit `files` entries bypass `.npmignore` for subdirectories). The `.npmignore`
-  file is still present for defence-in-depth.
-
-# Workchain Documentation
-
-This is the documentation index for [LUFS Workchain](https://github.com/lufs-audio/workchain), a YAML-driven, agent-first audio processing engine where "it worked" means proven correct, not merely exited zero.
-
-## Diátaxis map
-
-| Type | Path | What it is |
-|---|---|---|
-| **Tutorials** | `docs/tutorials/` | Guided learning: first chain, write a component, drive as an agent |
-| **How-to**: operate | `docs/how-to/operate/` | Install, run chains/components, inspect results, provision heavy, use shipped chains |
-| **How-to**: author | `docs/how-to/author/` | Write chains, write components with verify contracts, publish your own |
-| **Reference**: interfaces | `docs/reference/interfaces/` | CLI, MCP, and Bash engine command references |
-| **Reference**: contracts | `docs/reference/contracts/` | Verify checks catalog, requirements classes, context.json |
-| **Explanations** | `docs/explanation/` | Architecture, verification philosophy, agent-first design |
-| **Case studies** | `docs/case-studies/` | Component war stories — shipped bugs, contract design, measured verification |
-| **FAQ** | `docs/faq.md` | Frequently asked questions (operators, authors, agents) |
-| **Troubleshooting** | `docs/troubleshooting.md` | Common failures: verification reads, preflight, YAML gotchas, provisioning |
-
-## Reading paths
-
-- **New user**: README.md → `docs/tutorials/01-first-chain.md` → `docs/tutorials/02-write-a-component.md`
-- **Operator**: `docs/how-to/operate/install.md` → `docs/how-to/operate/run-chains.md` → `docs/how-to/operate/inspect-a-run.md` → `docs/reference/interfaces/cli.md`
-- **Author**: `docs/format.md` → `docs/how-to/author/author-a-component.md` → `docs/how-to/author/write-a-verify-block.md` → `docs/reference/contracts/verify-checks.md`
-- **Agent (AI)**: `llms.txt` → `agent.json` → `docs/explanation/agent-first.md` → `docs/tutorials/03-drive-workchain-as-an-agent.md` → `docs/reference/interfaces/mcp.md`
-- **Component consumer**: `workchain components --json` → `docs/case-studies/*.md` → the component's own `README.md`
-
-## Canonical source docs (not part of the Diátaxis tree)
-
-| Path | Purpose |
-|---|---|
-| `README.md` | Project overview, architecture, quickstart |
-| `AGENTS.md` | Contract model, build commands, and conventions for AI coding agents |
-| `llms.txt` | Machine-readable docs index (for LLM/agent retrieval) |
-| `docs/format.md` | Formal specification of chain YAML and step.yaml |
-| `docs/PUBLISHING.md` | npm publishing procedure |
-
-## Docs conventions (for contributors)
-
-- **Frontmatter**: every page under `docs/` carries `title`, `description`, and `type` (one of: `tutorial`, `how-to`, `reference`, `explanation`, `case-study`, `faq`, `troubleshooting`).
-- **Voice**: match the repo — terse, opinionated, honest about failure. Active voice, direct address, imperative steps, short sentences.
-- **Agent-readiness**: every page opens naming the product+surface; headings are answer-shaped; code blocks are copy-paste units with real responses shown; failure modes are documented.
-- **Measurements**: never invent. Every measured value in case studies is quoted verbatim from the component README it analyzes, with provenance noted.
-- **Links**: relative paths within the repo. Every link must resolve at PR time. Link to canonical sources (README, AGENTS.md, format.md, component READMEs) rather than duplicating their content.
-- **Tools**: documentation health is checked by `tools/doc-check.sh` (link resolution, llms.txt freshness, frontmatter completeness, license consistency). Run it before submitting a docs PR.
 ---
 title: "context.json: the run-state contract"
 description: "What context.json contains across a run — input, globals, per-step params, outputs, preflight and verification verdicts — how the primary output advances to the next step, and how resolved params reach run.sh via STEP_CONFIG."
@@ -4252,7 +4252,7 @@ component a verified transform:
 requirements (verified IN)  →  run.sh  →  verify (verified OUT)
 ```
 
-The canonical format spec is [`docs/format.md#requirements`](../format.md). This page is
+The canonical format spec is [`docs/format.md#requirements`](../../format.md). This page is
 the quick-lookup catalog: the five classes, their fields, preflight semantics, and
 copied examples from shipped `step.yaml` files. Everything here is derived from the
 docstring and `CHECKS` list of `lib/workchain_preflight.py`; if they disagree, the
@@ -4442,7 +4442,7 @@ type: reference
 # Verify checks: the complete catalog
 
 This page is the lookup table you open when deciding **which checks your component's
-`verify:` block needs**. It is a companion to [`docs/format.md`](../format.md), which is
+`verify:` block needs**. It is a companion to [`docs/format.md`](../../format.md), which is
 the canonical spec for the contract's shape and syntax — this page does not restate the
 full format. Link, don't duplicate: the yaml field tables and grammar below are the
 decision-relevant facts, and each entry points at its canonical `format.md` section.
@@ -4469,7 +4469,7 @@ A `verify:` block has two parts, both mandatory to never have:
 The verifier runs `lib/workchain_verify.py` immediately after `run.sh` exits 0. A
 component with no `verify:` key is reported tier `unverified` and passes
 non-blockingly; a declared contract that fails halts the chain. See
-[`docs/format.md#verify`](../format.md) for the full spec.
+[`docs/format.md#verify`](../../format.md) for the full spec.
 
 ## Hard rules (read before writing any contract)
 
@@ -4539,7 +4539,7 @@ linked in its heading (`docs/format.md` sections).
 
 ### audio_lufs_within
 
-[`docs/format.md#audio_lufs_within`](../format.md) · *numeric, re-measured*
+[`docs/format.md#audio_lufs_within`](../../format.md) · *numeric, re-measured*
 
 Independently measures the output's integrated loudness with `ffmpeg loudnorm` and
 fails if it is more than `tolerance` LU from the target the step was asked to hit.
@@ -4570,7 +4570,7 @@ Real example:
 
 ### audio_duration_matches
 
-[`docs/format.md#audio_duration_matches`](../format.md) · *metamorphic, re-measured*
+[`docs/format.md#audio_duration_matches`](../../format.md) · *metamorphic, re-measured*
 
 Metamorphic invariant: each listed audio output preserves the source duration within a
 tolerance. The canonical check for creative operators (separation, denoise,
@@ -4600,7 +4600,7 @@ Real example:
 
 ### stems_recombine
 
-[`docs/format.md#stems_recombine`](../format.md) · *metamorphic, re-computed*
+[`docs/format.md#stems_recombine`](../../format.md) · *metamorphic, re-computed*
 
 Metamorphic relation for source separation: the stems must **decompose** the input. The
 verifier sums the stems, subtracts the sum from the source, and requires the residual to
@@ -4635,7 +4635,7 @@ Real example:
 
 ### acoustic_roundtrip
 
-[`docs/format.md#acoustic_roundtrip`](../format.md) · *relational, re-decoded*
+[`docs/format.md#acoustic_roundtrip`](../../format.md) · *relational, re-decoded*
 
 Metamorphic/relational: `decode(output)` must contain the source text the step was asked
 to encode. The verifier **independently** re-decodes the produced waveform with the
@@ -4658,7 +4658,7 @@ without comparing it to the target.
 
 ### seed_record_verifies
 
-[`docs/format.md#seed_record_verifies`](../format.md) · *relational, re-verified*
+[`docs/format.md#seed_record_verifies`](../../format.md) · *relational, re-verified*
 
 Independently re-runs `lufs-seed verify` against the produced seed record **and** the
 source recording (when available), re-walking the whole chain: recording bytes → LSB
@@ -4679,7 +4679,7 @@ asserting its own provenance is exactly the failure this check exists to end.
 
 ### embedding_wellformed
 
-[`docs/format.md#embedding_wellformed`](../format.md) · *value check, re-computed*
+[`docs/format.md#embedding_wellformed`](../../format.md) · *value check, re-computed*
 
 The embedding sidecar contains a **real, usable vector**, not merely the right keys.
 Structural asserts can prove `vector` and `l2norm` are present; this proves the vector is
@@ -4703,7 +4703,7 @@ evidence — on a remote backend the producer is a network service you did not r
 
 ### json_fields_within
 
-[`docs/format.md#json_fields_within`](../format.md) · *declarative value contract*
+[`docs/format.md#json_fields_within`](../../format.md) · *declarative value contract*
 
 The reusable value contract. It reads a JSON output and evaluates a list of constraint
 expressions — `FIELD OP VALUE` — against its fields. This closes the most common and
@@ -4766,7 +4766,7 @@ Real examples:
 
 ### audio_format_matches
 
-[`docs/format.md#audio_format_matches`](../format.md) · *numeric, re-probed*
+[`docs/format.md#audio_format_matches`](../../format.md) · *numeric, re-probed*
 
 Independently re-probes an audio output with ffprobe and confirms its sample rate,
 channel count, and/or bit depth match what the step was **asked** to produce. This
@@ -4808,7 +4808,7 @@ Real example:
 
 ### content_hash_matches
 
-[`docs/format.md#content_hash_matches`](../format.md) · *numeric, re-computed*
+[`docs/format.md#content_hash_matches`](../../format.md) · *numeric, re-computed*
 
 Re-computes the content hash of the **source** and confirms it equals the digest the
 component recorded. Provenance is the one claim in this system that can be checked

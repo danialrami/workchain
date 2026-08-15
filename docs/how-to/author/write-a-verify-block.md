@@ -14,7 +14,7 @@ proof. This page is about turning "ran (exit 0)" into "proven correct."
 
 The check vocabulary lives in two places: the canonical reference is
 [`docs/format.md`](../../format.md) (the `verify` section, with every registered check and its
-keys); the contracts reference at [`docs/reference/contracts/`](../../../reference/contracts/) is
+keys); the contracts reference at [`docs/reference/contracts/`](../../reference/contracts/) is
 its companion catalog. Read the docstrings in `lib/workchain_verify.py` before choosing —
 parameter names are per-check and are not guessable.
 

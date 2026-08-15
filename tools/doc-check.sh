@@ -30,12 +30,13 @@ LLMS_FULL="${2:-llms-full.txt}"
 # ── gather all docs files ────────────────────────────────────────────────────
 DOCS_FILES=()
 while IFS= read -r -d '' f; do DOCS_FILES+=("$f"); done < <(
-    find docs -name '*.md' -not -path '*/node_modules/*' -print0 2>/dev/null | sort -z
+    find docs -name '*.md' -not -path '*/node_modules/*' -print0 2>/dev/null | LC_ALL=C sort -z
 )
 
 # ── 1. Internal link resolution ──────────────────────────────────────────────
 say() { echo "1. Checking internal links"; say() { :; }; say; }
 LINK_ERRS=()
+LINK_COUNT=0
 for f in "${DOCS_FILES[@]}" "$CHECK_LLMS_TXT"; do
     [[ -f "$f" ]] || continue
     while IFS= read -r link; do
@@ -55,13 +56,18 @@ for f in "${DOCS_FILES[@]}" "$CHECK_LLMS_TXT"; do
         [[ -z "$target" || "$target" == /* ]] && continue  # absolute paths or empty
         # Resolve relative to the file's directory
         dir=$(dirname "$f")
-        resolved="$(cd "$dir" 2>/dev/null && realpath -m "$target" 2>/dev/null)"
-        if [[ -z "$resolved" || ! -f "$resolved" ]]; then
+        # Portable resolution: no realpath -m (BSD lacks it). Test inside the file's dir,
+        # accepting BOTH files and directories.
+        if ( cd "$dir" && [[ -e "$target" ]] ) 2>/dev/null; then
+            :
+        else
             LINK_ERRS+=("$f: broken link -> $link")
         fi
-    done < <(grep -oP '\[[^\]]+\]\(([^)]+)\)' "$f" 2>/dev/null | sed 's/\[[^]]*\](//;s/)//' || true)
+        ((LINK_COUNT++))
+    # Portable extraction (POSIX ERE; BSD grep has no -P): capture ](target)
+    done < <(grep -oE ']\([^)]+' "$f" 2>/dev/null | sed 's/^]*(//' || true)
 done
-if [[ ${#LINK_ERRS[@]} -eq 0 ]]; then ok "all internal links resolve (${#DOCS_FILES[@]} files)"; else bad "broken links: ${LINK_ERRS[*]}"; fi
+if [[ ${#LINK_ERRS[@]} -eq 0 ]]; then ok "all internal links resolve (${#DOCS_FILES[@]} files, $LINK_COUNT links checked)"; else bad "broken links: ${LINK_ERRS[*]}"; fi
 
 # ── 2. llms.txt path existence ───────────────────────────────────────────────
 say() { echo "2. Checking llms.txt paths exist"; say() { :; }; }
@@ -72,7 +78,7 @@ while IFS= read -r ref; do
         MISSING+=("$path")
     fi
 # Match BOTH markdown-link syntax [text](path) and bare paths (list items, prose):
-done < <(grep -oE 'docs/[a-zA-Z0-9_/.-]+\.(md|json|sh|yaml|yml)' "$CHECK_LLMS_TXT" 2>/dev/null | sort -u || true)
+done < <(grep -oE 'docs/[a-zA-Z0-9_/.-]+\.(md|json|sh|yaml|yml)' "$CHECK_LLMS_TXT" 2>/dev/null | LC_ALL=C sort -u || true)
 if [[ ${#MISSING[@]} -eq 0 ]]; then ok "all llms.txt paths exist"; else bad "missing paths in llms.txt: ${MISSING[*]}"; fi
 
 # ── 3. llms-full.txt freshness ──────────────────────────────────────────────
@@ -139,7 +145,7 @@ if [[ -z "$GHOSTS" ]]; then ok "no ghost references to stripped components"; els
 
 # ── 7. Index completeness (llms.txt covers every docs page) ──────────────────
 say() { echo "7. Checking index completeness (llms.txt → docs coverage)"; say() { :; }; }
-LLMS_PATHS=$(grep -oiE 'docs/[a-zA-Z0-9_/-]+\.md' "$CHECK_LLMS_TXT" 2>/dev/null | sort -u || true)
+LLMS_PATHS=$(grep -oiE 'docs/[a-zA-Z0-9_/-]+\.md' "$CHECK_LLMS_TXT" 2>/dev/null | LC_ALL=C sort -u || true)
 COVERED=0
 MISSING_FROM_LLMS=()
 for f in "${DOCS_FILES[@]}"; do

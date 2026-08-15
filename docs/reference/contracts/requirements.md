@@ -15,7 +15,7 @@ component a verified transform:
 requirements (verified IN)  →  run.sh  →  verify (verified OUT)
 ```
 
-The canonical format spec is [`docs/format.md#requirements`](../format.md). This page is
+The canonical format spec is [`docs/format.md#requirements`](../../format.md). This page is
 the quick-lookup catalog: the five classes, their fields, preflight semantics, and
 copied examples from shipped `step.yaml` files. Everything here is derived from the
 docstring and `CHECKS` list of `lib/workchain_preflight.py`; if they disagree, the
