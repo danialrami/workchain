@@ -83,7 +83,10 @@ jobs:
       - name: Release check
         run: ./tools/release-check.sh
 
-      # GATE: components/index.json must not be stale.
+      # GATE: documentation health — link resolution, llms.txt freshness, frontmatter,
+      # license consistency. Run after release-check so all generated artifacts exist.
+      - name: Documentation health check
+        run: ./tools/doc-check.sh
       # If any component file changed without regenerating the index, this fails.
       # Never add continue-on-error here.
       - name: Check registry freshness

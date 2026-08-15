@@ -38,6 +38,7 @@ Runs on every push to `main` and every pull request.
 | Install ffmpeg | yes (setup) | ffmpeg/ffprobe available for CLI and verifier |
 | `npm ci` + `npm test` | yes | Frozen install from `cli/package-lock.json`, then Node CLI unit tests (vitest) |
 | `tools/release-check.sh` | **yes, unconditionally** | Every light chain end to end, plus the negative test proving the verifier still fails closed |
+| `tools/doc-check.sh` | **yes** | Documentation health: link resolution, llms.txt freshness, frontmatter completeness, license consistency |
 | `registry check` | **yes** | `components/index.json` is not stale |
 | `validate all --strict` | **yes** | All chains pass strict YAML + schema validation |
 | `doctor` | **no** (informational) | Preflight across registry; stem_separation will fail on bare runner — see note |
