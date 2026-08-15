@@ -79,7 +79,8 @@ the recording chain upstream is the thing to investigate.
 
 ```
 ✗ stem_separation — dependency preflight FAILED (1 of 3 checks)
-    python:venv: venv python not found at /home/exedev/workspace/workchain/components/stem_separation/.venv — provision: python3 -m venv .venv && .venv/bin/pip install 'audio-separator[cpu]' (use Python 3.10 — Demucs diffq has no cp311 wheel)
+    python:venv: venv python not found at /path/to/components/stem_separation/.venv — provision: python3 -m venv .venv && .venv/bin/pip install 'audio-separator[cpu]' (use Python 3.10 — Demucs diffq has no cp311 wheel)
+  - *Fix:* run `components/stem_separation/provision.sh` or follow the instructions in [`provision-heavy-components`](how-to/operate/provision-heavy-components.md)
 Step failed dependency preflight: stem_separation
 Chain halted: step 'stem_separation' failed
 ```
