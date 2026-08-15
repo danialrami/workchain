@@ -1,6 +1,6 @@
 # Component Template
 
-The canonical scaffold for a new workchain component. Copy it, don't retype it — `components/_template/step.yaml` is the live contract schema, not a description of one. This README is a pointer, not the guide; see `docs/component-development.md` for the full walkthrough.
+The canonical scaffold for a new workchain component. Copy it, don't retype it — `components/_template/step.yaml` is the live contract schema, not a description of one. This README is a pointer, not the guide; see `docs/how-to/author/author-a-component.md` for the full walkthrough.
 
 ## Structure
 
@@ -92,7 +92,7 @@ verify:
   #     tolerance_s: 0.2
 ```
 
-Full spec for both contract halves: `docs/component-development.md`, and `docs/product/workchain/03-component-contract` in the knowledge base for the *why*.
+Full spec for both contract halves: `docs/how-to/author/author-a-component.md`, and `docs/product/workchain/03-component-contract` in the knowledge base for the *why*.
 
 ## run.sh
 
@@ -159,7 +159,7 @@ From `lib/common-utils.sh`:
 
 ## Where to Go Deeper
 
-- `docs/component-development.md` — the full guide: contract details, verify assert primitives, post-conditions, registry hashing/tiering.
+- `docs/how-to/author/author-a-component.md` — the full guide: contract details, verify assert primitives, post-conditions, registry hashing/tiering.
 - `components/_template/step.yaml` — the canonical, always-current schema. If a guide and the template disagree, the template wins.
 
 lufs.
