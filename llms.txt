@@ -6,33 +6,66 @@
 > three, so an AI agent gets identical schemas and behavior no matter which door it walks
 > through.
 
-LUFS Workchain turns audio production steps (LUFS normalization, AI-training protection,
-stem separation, format conversion, quality benchmarking, artwork/Canvas generation,
-content-hash cataloging) into composable units an agent can orchestrate. The filesystem under
-`components/` IS the registry — one folder per component (`step.yaml` + `run.sh` + `README.md`).
+LUFS Workchain turns audio production steps (LUFS normalization, stem separation,
+format conversion, quality benchmarking, content-hash cataloging, spectral transformation)
+into composable units an agent can orchestrate. The filesystem under `components/` IS the
+registry — one folder per component (`step.yaml` + `run.sh` + `README.md`).
 
 ## Prime directive: proven correct, not exited 0.
 
 A green exit code is not success. Every component declares:
 
 - **Inbound `requirements:`** (commands / python / node / models / env) — enforced by
-  `lib/workchain_preflight.py` **before** `run.sh` runs. Missing a dependency halts the step
-  with a clear error instead of letting it run against a broken environment. This is
-  "Verified IN."
+  `lib/workchain_preflight.py` **before** `run.sh` runs.
 - **Outbound `verify:`** — enforced by `lib/workchain_verify.py` **after** the run, against
   the component's own declared contract. Structural asserts (`exists`, `non_empty`,
   `audio_valid`, `json_valid`, `json_has`) plus numeric/relational post-conditions with
-  tolerances (e.g. measured LUFS within ±1 dB of target). Creative/probabilistic operators
-  (stem separation, denoise, restoration) use metamorphic invariants instead of exact-output
-  checks — duration preserved, stems recombine to reconstruct the source — because "correct"
-  for those has no single right answer. This is "Verified OUT."
+  tolerances. Creative operators use metamorphic invariants (duration preserved, stems
+  recombine) instead of exact-output checks.
 - A component that exits 0 but fails its declared `verify:` contract is recorded `failed`,
-  not `completed`. A component with no `verify:` contract is honestly labeled `unverified`
-  rather than silently trusted.
+  not `completed`. A component with no `verify:` contract is honestly labeled `unverified`.
+- Tiers: **unverified** → **verified** → **certified** (roadmap: ed25519-signed definition hashes).
 
-Tiers: **unverified** (ran, no contract proved it) → **verified** (passed its declared
-contract automatically) → **certified** (ed25519-signed over the component's definition hash;
-roadmap, not yet implemented).
+## Documentation map
+
+- `docs/tutorials/01-first-chain.md` — your first verified chain (with a deliberate failure)
+- `docs/tutorials/02-write-a-component.md` — write a verified component (scaffold fails until implemented)
+- `docs/tutorials/03-drive-workchain-as-an-agent.md` — operate from an AI agent's perspective
+- `docs/how-to/operate/install.md` — install the CLI and check the system
+- `docs/how-to/operate/run-chains.md` — running chains with dry-run, timeout, JSON output
+- `docs/how-to/operate/run-components.md` — running a single component standalone
+- `docs/how-to/operate/inspect-a-run.md` — reading stdout JSON, stderr NDJSON, exit codes
+- `docs/how-to/operate/provision-heavy-components.md` — provisioning stem_separation etc.
+- `docs/how-to/operate/use-the-shipped-chains.md` — deliverable profiles and the CDP chain
+- `docs/how-to/operate/configure.md` — CLI configuration
+- `docs/how-to/author/author-a-chain.md` — writing chain YAML (globals, steps, precedence)
+- `docs/how-to/author/author-a-component.md` — writing a verified component
+- `docs/how-to/author/write-a-verify-block.md` — choosing structural asserts and post-conditions
+- `docs/how-to/author/publish-your-own-components.md` — the filesystem registry model
+- `docs/reference/interfaces/cli.md` — CLI command reference (run, components, chains, validate, doctor, registry, generate, config)
+- `docs/reference/interfaces/mcp.md` — MCP server reference (6 tools, transports)
+- `docs/reference/interfaces/engine.md` — Bash engine reference
+- `docs/reference/contracts/verify-checks.md` — catalog of all verify post-conditions and structural asserts
+- `docs/reference/contracts/requirements.md` — requirements classes (commands, python, node, models, env)
+- `docs/reference/contracts/context-json.md` — context.json structure and parameter resolution
+- `docs/case-studies/normalization.md` — the "measured but never compared" bug and how audio_lufs_within closes it
+- `docs/case-studies/stem-separation.md` — metamorphic invariants for operations with no single correct output
+- `docs/case-studies/cdp-transform.md` — fail-closed parameter enforcement against a permissive library
+- `docs/case-studies/content-hash.md` — the one claim a verifier can check perfectly by redoing the work
+- `docs/case-studies/format-conversion.md` — honest gaps: structural-only verification
+- `docs/case-studies/audio-benchmark.md` — reports not gates, and how completed_with_errors works
+- `docs/explanation/architecture.md` — how the pieces fit (one parser, filesystem registry, execution flow, tiers)
+- `docs/explanation/verification.md` — the prime directive and its consequences (fail-open/fail-closed, metamorphic, tolerances)
+- `docs/explanation/agent-first.md` — why the interfaces are designed for agents
+- `docs/faq.md` — frequently asked questions, by audience (operators, authors, agents)
+- `docs/troubleshooting.md` — common failures and how to fix them
+- `docs/README.md` — full Diátaxis map and per-audience reading paths
+- `docs/PUBLISHING.md` — npm publishing procedure
+- `docs/README.md` — full Diátaxis map and per-audience reading paths
+- `README.md` — overview, architecture, quickstart
+- `AGENTS.md` — contract model, build commands, conventions for coding agents
+- `docs/format.md` — canonical chain and step.yaml file format specification
+- `docs/PUBLISHING.md` — npm publishing procedure
 
 ## Start here (agent discovery in 5 calls)
 
@@ -41,119 +74,69 @@ workchain --help                      # all commands, options, exit codes
 workchain components --json           # what components exist
 workchain component <name> --json     # a component's params (with ranges) + outputs
 workchain chains --json               # prebuilt chains and the components they use
-workchain run <chain> <input> --dry-run --json   # preview the plan, then drop --dry-run to execute
+workchain run <chain> <input> --dry-run --json   # preview the plan, then drop --dry-run
 ```
 
-## Commands (CLI — `@lufs-audio/workchain`)
+## CLI commands (`@lufs-audio/workchain`)
 
-- `run <chain> <input> [-o dir] [--timeout <s>] [--json] [--report] [--dry-run]` — execute a
-  chain (or preview it).
-- `run-component <name> <input> [-o dir] [--params-json '{...}'] [-r] [-e <exts>] [--json]` —
-  run one component standalone; `-r` batches recursively over a directory of audio files.
-- `components [--json] [--filter <pattern>]` / `component <name> [--json]` — discover
-  components and full schemas.
-- `chains [--json] [--filter <pattern>]` / `chain <name> [--json]` — discover chains and their
-  definitions.
-- `validate <chain|all> [--strict] [--json]` — structural validation; `--strict` also checks
-  param types, numeric ranges, unknown params, and required-command availability (Verified IN,
-  pre-run).
-- `doctor [--deep]` — run the inbound-requirements preflight for every component; `--deep` also
-  verifies model content hashes. The install health check.
-- `registry <generate|check>` — `generate` (re)writes `components/index.json` (name,
-  description, tier, requirements, verify summary, per-component SHA-256 **definition hash**);
-  `check` exits 1 if the index is missing or stale (CI gate). The index is generated from
-  `components/`, never hand-edited.
-- `generate component --name <snake_case> --description "..." [--type audio] [--params '[...]'] [--commands ffmpeg] [--python-packages <list>] [--node-packages <list>] [--dependency <name>] [--output-subdir <path>]`
-  — scaffold a new component. The generated `run.sh` fails until you implement it (a
-  `WORKCHAIN_NOT_IMPLEMENTED=1` sentinel), so a fresh scaffold can never report false success.
-- `config set|get|list|delete|reset` — manage CLI configuration (`workchainRoot`, `server`,
-  `defaultChain`, `outputDir`, `concurrency`).
+- `run <chain> <input> [-o dir] [--timeout <s>] [--json] [--report] [--dry-run]` — execute a chain.
+- `run-component <name> <input> [-o dir] [--params-json '{...}'] [-r] [-e <exts>] [--json]` — run a single component standalone.
+- `components [--json] [--filter <pattern>]` / `component <name> [--json]` — discover components and schemas.
+- `chains [--json] [--filter <pattern>]` / `chain <name> [--json]` — discover chains and definitions.
+- `validate <chain|all> [--strict] [--json]` — structural validation; `--strict` also checks param types, ranges, and required-command availability.
+- `doctor [--deep]` — inbound-requirements preflight for every component; `--deep` also verifies model content hashes.
+- `registry <generate|check>` — generate or check `components/index.json` freshness (CI gate).
+- `generate component --name <snake_case> --description "..." [--type audio] [--params '[...]'] [--commands ffmpeg] [--python-packages <list>] [--dependency <name>] [--output-subdir <path>]` — scaffold a new component with WORKCHAIN_NOT_IMPLEMENTED sentinel.
+- `config set|get|list|delete|reset` — manage CLI configuration.
 
-Conventions: `stdout` = final JSON result (`--json`); `stderr` = newline-delimited NDJSON
-progress events; exit codes `0` success / `1` execution error / `2` input error / `3` config
-error.
+Conventions: `stdout` = final JSON result (`--json`); `stderr` = newline-delimited NDJSON progress; exit codes `0` success / `1` execution error / `2` input error / `3` config error.
 
-## MCP server (FastMCP)
+## MCP server (FastMCP — 6 tools)
 
-Tools — signatures exactly as exposed by `mcp-server/server.py`:
+| Tool | Description |
+|---|---|
+| `list_components()` | List all components (name, description, type, version, param_count) |
+| `get_step_schema(component)` | Full params/outputs/requirements/verify schema for one component |
+| `validate_chain(chain_file, strict)` | Validate a chain before running (strict checks param ranges) |
+| `run_chain(chain_file, input_file, output_dir)` | Execute a processing chain on an audio file |
+| `run_component(component, input_file, output_dir, params_json)` | Run a single component standalone |
+| `create_component(name, description, type, params_json, commands)` | Scaffold a new component |
 
-- `list_components() -> str` — every component (name, description, type, version, param_count).
-- `get_step_schema(component: str) -> str` — full schema for one component: params (type,
-  default, numeric range), declared outputs, requirements.
-- `validate_chain(chain_file: str, strict: bool = True) -> str` — validate a chain before
-  running it.
-- `run_chain(chain_file: str, input_file: str, output_dir: str = "") -> str` — run a chain on
-  an audio file (shells out to the CLI's `run`).
-- `run_component(component: str, input_file: str, output_dir: str = "", params_json: str = "{}") -> str`
-  — run a single component standalone (shells out to the CLI's `run-component`).
-- `create_component(name: str, description: str, type: str = "audio", params_json: str = "", commands: str = "") -> str`
-  — scaffold a new component (shells out to the CLI's `generate component`).
+Every tool returns a JSON string. Run: `python mcp-server/server.py` (stdio) or `python mcp-server/server.py --transport streamable-http --port 9000`.
 
-Every tool returns a JSON string. Run: `python mcp-server/server.py` (stdio, default) or
-`python mcp-server/server.py --transport streamable-http --port 9000`.
-
-## Components
-
-Deliberately not listed here. `components/` **is** the registry, and `components/index.json`
-is its generated index — name, description, version, tier, params, requirements, verify
-contract, and a per-component SHA-256 definition hash — kept current by a CI gate
-(`lib/workchain_registry.py check`).
+## Components — the registry
 
 ```bash
-workchain components --json     # the live list, with schemas
-cat components/index.json            # …or read the generated index directly
+workchain components --json     # live list with schemas
+cat components/index.json        # OR the generated index directly
 ```
 
-There used to be a hand-written list in this spot. It was a second source of truth, and it
-drifted — it went stale the first time a component was added and silently under-reported what
-the registry actually held. Removed rather than corrected: an enumeration that *can* drift
-eventually *will*.
+Components shipped: `normalization`, `format_conversion`, `audio_benchmark`, `stem_separation`, `cdp_transform`, `content_hash`. Each is `light` except `stem_separation` (heavy: requires Python venv + model weights). The `_template` directory is the scaffold schema, not a component.
 
 ## Distribution model
 
-- **Lean npm core** (daily driver): engine + `lib/` + CLI + light stdlib components
-  (normalization, format_conversion, audio_benchmark, catalog) — ffmpeg + system `python3`
-  only, no `uv`, no models.
-- **Heavy components** declare `python`/`models` requirements in `step.yaml` and are
-  provisioned separately (`uv sync`); the registry marks them tier `heavy` — read
-  `components/index.json` for which ones, rather than trusting a list written here.
-- **Hosted MCP tier** for heavy work an agent shouldn't have to provision locally (planned).
+- **Lean npm core** — engine + lib/ + CLI + light stdlib components (normalization, format_conversion, audio_benchmark, content_hash). Requires only ffmpeg + system python3; no `uv` needed.
+- **Heavy components** declare `python`/`models` requirements and are provisioned separately (`uv sync`). Check `components/index.json` for tier.
+- **Hosted MCP tier** for heavy work (planned).
 
 ## Model
 
-- **Component** = `components/<name>/{step.yaml, run.sh, README.md}`. `step.yaml` declares
-  `params_schema` (type/default/range), `outputs` (typed artifacts), `requirements`
-  (commands/python/node/models/env), and `verify` (assert primitives + post_conditions).
-- **Chain** = YAML: `name`, `version`, optional `globals`, and `steps[]` (each `name`,
-  `enabled`, `params`).
+- **Component** = `components/<name>/{step.yaml, run.sh, README.md}`. `step.yaml` declares `params_schema`, `outputs`, `requirements`, and `verify`.
+- **Chain** = YAML: `name`, `version`, optional `globals` and `steps[]`.
 - **Param precedence**: step `params` > chain `globals` > component schema default.
-- **Context**: each step reads/writes `context.json`; a step's primary output becomes the
-  next step's input.
-- **Registry**: `components/index.json`, generated by `lib/workchain_registry.py generate`;
-  each entry carries a `definition_hash` (SHA-256 over the component's tracked source,
-  excluding `.venv/`, `models/`, caches) and a `tier` (`light`|`heavy`).
+- **Context**: each step reads/writes `context.json`; a step's primary output becomes the next step's input.
+- **Registry**: `components/index.json`, generated by `lib/workchain_registry.py generate`; CI gate with `registry check`.
 
 ## Install
 
 ```bash
-# Node CLI (from the repo)
 cd cli && npm install && npm link        # then `workchain` is global
-# Python components (optional heavy deps) — uv preferred, but the engine + core components
-# run on system python3 + ffmpeg with no venv.
-uv sync
 ```
 
 ## Requirements
 
-- ffmpeg + ffprobe (audio processing) · Node 18+ (CLI) · Python 3.10+ (heavy components / MCP).
-- The engine and light components (normalization, format_conversion, audio_benchmark, catalog)
-  need only ffmpeg + system python3 — no `uv` required.
+ffmpeg + ffprobe · Node 18+ · Python 3.10+ (heavy components / MCP). The engine and light components need only ffmpeg + system python3.
 
 ## Docs
 
-- `README.md` — overview and architecture.
-- `AGENTS.md` — build/test commands and contract details for coding agents working in this repo.
-- `docs/interface-philosophy.md` — why the interfaces are designed for agents.
-- `docs/nyquist-exploration/` — the contract-hardening journals (what changed and why); see
-  `docs/nyquist-exploration/NEXT-STEPS.md` for the current roadmap.
-- Repository: https://github.com/lufs-audio/workchain · License: MIT.
+- Repository: https://github.com/lufs-audio/workchain · License: Apache-2.0.

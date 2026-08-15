@@ -7,7 +7,7 @@ type: reference
 # Verify checks: the complete catalog
 
 This page is the lookup table you open when deciding **which checks your component's
-`verify:` block needs**. It is a companion to [`docs/format.md`](../format.md), which is
+`verify:` block needs**. It is a companion to [`docs/format.md`](../../format.md), which is
 the canonical spec for the contract's shape and syntax — this page does not restate the
 full format. Link, don't duplicate: the yaml field tables and grammar below are the
 decision-relevant facts, and each entry points at its canonical `format.md` section.
@@ -34,7 +34,7 @@ A `verify:` block has two parts, both mandatory to never have:
 The verifier runs `lib/workchain_verify.py` immediately after `run.sh` exits 0. A
 component with no `verify:` key is reported tier `unverified` and passes
 non-blockingly; a declared contract that fails halts the chain. See
-[`docs/format.md#verify`](../format.md) for the full spec.
+[`docs/format.md#verify`](../../format.md) for the full spec.
 
 ## Hard rules (read before writing any contract)
 
@@ -104,7 +104,7 @@ linked in its heading (`docs/format.md` sections).
 
 ### audio_lufs_within
 
-[`docs/format.md#audio_lufs_within`](../format.md) · *numeric, re-measured*
+[`docs/format.md#audio_lufs_within`](../../format.md) · *numeric, re-measured*
 
 Independently measures the output's integrated loudness with `ffmpeg loudnorm` and
 fails if it is more than `tolerance` LU from the target the step was asked to hit.
@@ -135,7 +135,7 @@ Real example:
 
 ### audio_duration_matches
 
-[`docs/format.md#audio_duration_matches`](../format.md) · *metamorphic, re-measured*
+[`docs/format.md#audio_duration_matches`](../../format.md) · *metamorphic, re-measured*
 
 Metamorphic invariant: each listed audio output preserves the source duration within a
 tolerance. The canonical check for creative operators (separation, denoise,
@@ -165,7 +165,7 @@ Real example:
 
 ### stems_recombine
 
-[`docs/format.md#stems_recombine`](../format.md) · *metamorphic, re-computed*
+[`docs/format.md#stems_recombine`](../../format.md) · *metamorphic, re-computed*
 
 Metamorphic relation for source separation: the stems must **decompose** the input. The
 verifier sums the stems, subtracts the sum from the source, and requires the residual to
@@ -200,7 +200,7 @@ Real example:
 
 ### acoustic_roundtrip
 
-[`docs/format.md#acoustic_roundtrip`](../format.md) · *relational, re-decoded*
+[`docs/format.md#acoustic_roundtrip`](../../format.md) · *relational, re-decoded*
 
 Metamorphic/relational: `decode(output)` must contain the source text the step was asked
 to encode. The verifier **independently** re-decodes the produced waveform with the
@@ -223,7 +223,7 @@ without comparing it to the target.
 
 ### seed_record_verifies
 
-[`docs/format.md#seed_record_verifies`](../format.md) · *relational, re-verified*
+[`docs/format.md#seed_record_verifies`](../../format.md) · *relational, re-verified*
 
 Independently re-runs `lufs-seed verify` against the produced seed record **and** the
 source recording (when available), re-walking the whole chain: recording bytes → LSB
@@ -244,7 +244,7 @@ asserting its own provenance is exactly the failure this check exists to end.
 
 ### embedding_wellformed
 
-[`docs/format.md#embedding_wellformed`](../format.md) · *value check, re-computed*
+[`docs/format.md#embedding_wellformed`](../../format.md) · *value check, re-computed*
 
 The embedding sidecar contains a **real, usable vector**, not merely the right keys.
 Structural asserts can prove `vector` and `l2norm` are present; this proves the vector is
@@ -268,7 +268,7 @@ evidence — on a remote backend the producer is a network service you did not r
 
 ### json_fields_within
 
-[`docs/format.md#json_fields_within`](../format.md) · *declarative value contract*
+[`docs/format.md#json_fields_within`](../../format.md) · *declarative value contract*
 
 The reusable value contract. It reads a JSON output and evaluates a list of constraint
 expressions — `FIELD OP VALUE` — against its fields. This closes the most common and
@@ -331,7 +331,7 @@ Real examples:
 
 ### audio_format_matches
 
-[`docs/format.md#audio_format_matches`](../format.md) · *numeric, re-probed*
+[`docs/format.md#audio_format_matches`](../../format.md) · *numeric, re-probed*
 
 Independently re-probes an audio output with ffprobe and confirms its sample rate,
 channel count, and/or bit depth match what the step was **asked** to produce. This
@@ -373,7 +373,7 @@ Real example:
 
 ### content_hash_matches
 
-[`docs/format.md#content_hash_matches`](../format.md) · *numeric, re-computed*
+[`docs/format.md#content_hash_matches`](../../format.md) · *numeric, re-computed*
 
 Re-computes the content hash of the **source** and confirms it equals the digest the
 component recorded. Provenance is the one claim in this system that can be checked
