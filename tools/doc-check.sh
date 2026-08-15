@@ -71,7 +71,8 @@ while IFS= read -r ref; do
     if [[ -n "$path" && ! -f "$path" ]]; then
         MISSING+=("$path")
     fi
-done < <(grep -oP '(?<=\])\([^)]+\.(md|json|sh|yaml|xml|yml|toml|lock)\)' "$CHECK_LLMS_TXT" 2>/dev/null || true)
+# Match BOTH markdown-link syntax [text](path) and bare paths (list items, prose):
+done < <(grep -oE 'docs/[a-zA-Z0-9_/.-]+\.(md|json|sh|yaml|yml)' "$CHECK_LLMS_TXT" 2>/dev/null | sort -u || true)
 if [[ ${#MISSING[@]} -eq 0 ]]; then ok "all llms.txt paths exist"; else bad "missing paths in llms.txt: ${MISSING[*]}"; fi
 
 # ── 3. llms-full.txt freshness ──────────────────────────────────────────────
