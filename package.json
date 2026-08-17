@@ -37,7 +37,7 @@
     "split2": "^4.2.0"
   },
   "optionalDependencies": {
-    "cdp-wasm": "^0.5.3"
+    "cdp-wasm": "^0.6.0"
   },
   "files": [
     "cli/bin/",
