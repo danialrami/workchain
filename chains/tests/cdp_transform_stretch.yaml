@@ -1,0 +1,10 @@
+name: "Test: CDP Transform forced-cross-second determinism"
+description: "Stretches a short source eightfold so each render is slow enough to straddle a wall-clock second boundary. This is the evidence method for issue #21: two renders of the same input must prove identical decoded samples even though the WAV container embeds wall-clock fields (PEAK chunk timestamp, LIST/adtl DATE) that differ across second boundaries. determinism_ok is sample-based; container_bytes_stable records the file-byte comparison without gating."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: stretch.time
+      values_json: "{\"factor\": 8}"
+      min_peak_dbfs: -60
