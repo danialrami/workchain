@@ -62,7 +62,7 @@ outputs:
 
     - name: transform_record
       type: json
-      description: "Effect id, validated parameters, and independently measured output properties (duration, true peak, RMS, rate, channels, stereo correlation, determinism hashes)"
+      description: "Effect id, validated parameters, and independently measured output properties (duration, true peak, RMS, rate, channels, stereo correlation, determinism hashes over the decoded samples plus the recorded container-bytes comparison)"
       required: true
       path_template: "logs/cdp_transform.json"
 
@@ -95,6 +95,8 @@ verify:
         - measured_duration_s
         - measured_peak_dbfs
         - determinism_ok
+        - render_samples_sha256
+        - container_bytes_stable
         - envelopes_all_applied
   post_conditions:
     - id: params_within_declared_range
@@ -125,7 +127,7 @@ verify:
       output: transform_record
       require:
         - "determinism_ok == true"
-      description: "Metamorphic invariant: rendering the same input with the same parameters twice produces byte-identical audio. Asserted only for effects the cdp-wasm catalog does NOT mark parityExempt (seeded RNG / randomised event placement); for those, the component sets determinism_ok true and records both hashes without claiming equality. The field is emitted only when both renders completed, so a run where either side failed to execute reports a missing field and FAILS rather than passing on None == None."
+      description: "Metamorphic invariant: rendering the same input with the same parameters twice produces the same decoded audio. determinism_ok compares SHA-256 digests over the DECODED SAMPLES (render_samples_sha256(+_repeat)) -- the container is deliberately not part of the claim, because CDP's soundfile layer stamps wall-clock fields into the WAV header (PEAK chunk timestamp, LIST/adtl DATE) and two renders of bit-identical audio differ by those bytes whenever they straddle a second boundary. The old container-bytes comparison is kept as a recorded, non-gating fact (container_bytes_stable) so the step still reports it without failing on it. Asserted only for effects the cdp-wasm catalog does NOT mark parityExempt (seeded RNG / randomised event placement); for those, the component sets determinism_ok true and records both sample digests without claiming equality. The field is emitted only when both renders completed, so a run where either side failed to execute reports a missing field and FAILS rather than passing on None == None."
 
 requirements:
   commands:
