@@ -35,6 +35,10 @@ For every unit:
 - **Measured claims are provenance.** No measured number is invented, rounded, or re-derived. If a README value looks stale, report it; do not edit it to match.
 - **No new dependencies unless the unit explicitly says so** (all eight can be done without adding any).
 
+## Protected branch (do not touch)
+
+`refs/heads/ciani/cdp-examples-for-oliver` is the caller's branch. It is **out of scope for the entire fan-out**: no builder, reviewer, or integrator may checkout, edit, push to it, or use it as a base. PRs only ever target `fixes`/`roadmap`; branches are `agent/NN-*` only.
+
 ## Surface / ownership table (the collision registry)
 
 Parallel builders each work in an isolated VM, but their PRs merge into one repo — this table makes the shared-file risk deliberate (per `active-tasks.md`). PRs are opened against `fixes` or `roadmap` (see *Merge strategy* below).
