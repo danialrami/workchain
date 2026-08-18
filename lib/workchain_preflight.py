@@ -44,7 +44,10 @@ runs only when asked: pass --deep, or mark a model `always_hash: true`. (Certify
 is where deep hashing belongs — mirrors "cheap relations every run; expensive at certify time".)
 
 CLI:
-  workchain_preflight.py <workchain_root> <component> [context_file] [--json] [--deep]
+  workchain_preflight.py <workchain_root> <component> [context_file] [step_id] [--json] [--deep]
+      step_id  option: the step's effective id — the key the record lives
+               under in context.json `steps` (defaults to the component name;
+               also readable from the __WC_STEP env var the engine exports)
 
 Exit codes:
   0  satisfied  (all declared requirements met; also 0 when nothing is declared).
@@ -96,12 +99,29 @@ def _norm_pkg(p, key):
     return p or {}
 
 
-def _resolve_params(step_yaml, ctx, comp):
+def resolve_effective_step_key(comp, step_id=None):
+    """The key this step's record lives under in context.json `steps`: the effective
+    step id (passed by the engine as argv[3] / __WC_STEP), else the component name.
+
+    Never mixes the two: the engine WROTE the record under the id (record_step_params /
+    register_output), so reading it back through a component-name fallback would
+    resurrect exactly the silent overwrite per-step identity exists to prevent."""
+    if step_id not in (None, ""):
+        return step_id
+    env_id = os.environ.get("__WC_STEP")
+    if env_id not in (None, ""):
+        return env_id
+    return comp
+
+
+def _resolve_params(step_yaml, ctx, step_key):
     """Resolved step params, for `when:` guard evaluation.
 
     Precedence: recorded step params > chain globals > step.yaml `params_schema` defaults.
     Deliberately the same precedence lib/workchain_verify.py's resolve_target uses, so a
     dependency guard and a post-condition can never disagree about what a param is.
+    `step_key` is the effective step id the record was written under (defaults to the
+    component name).
     """
     params = {}
     for name, spec in (step_yaml.get("params_schema") or {}).items():
@@ -111,7 +131,7 @@ def _resolve_params(step_yaml, ctx, comp):
         for k, v in (ctx.get("globals") or {}).items():
             if v is not None and v != "":
                 params[k] = v
-        step = ((ctx.get("steps") or {}).get(comp) or {})
+        step = ((ctx.get("steps") or {}).get(step_key) or {})
         for k, v in ((step.get("params") or {})).items():
             if v is not None and v != "":
                 params[k] = v
@@ -312,7 +332,8 @@ def _rec(rep, name, ok, detail):
         rep["failures"].append({"name": name, "detail": detail})
 
 
-def preflight(root, comp, deep=False, context_file=None):
+def preflight(root, comp, deep=False, context_file=None, step_id=None):
+    step_key = resolve_effective_step_key(comp, step_id)
     rep = {
         "component": comp,
         "satisfied": True,
@@ -335,7 +356,7 @@ def preflight(root, comp, deep=False, context_file=None):
                 ctx = json.load(f)
         except Exception:
             ctx = None
-    params = _resolve_params(step_yaml, ctx, comp)
+    params = _resolve_params(step_yaml, ctx, step_key)
     rep["resolved_params"] = params
     for fn in CHECKS:
         try:
@@ -346,7 +367,7 @@ def preflight(root, comp, deep=False, context_file=None):
     return rep
 
 
-def _persist(context_file, comp, rep):
+def _persist(context_file, step_key, rep):
     if not context_file or not os.path.exists(context_file):
         return
     try:
@@ -354,12 +375,12 @@ def _persist(context_file, comp, rep):
             ctx = json.load(f)
     except Exception:
         return
-    ctx.setdefault("steps", {}).setdefault(comp, {})
-    ctx["steps"][comp]["preflight"] = rep
+    ctx.setdefault("steps", {}).setdefault(step_key, {})
+    ctx["steps"][step_key]["preflight"] = rep
     if not rep["satisfied"]:
-        ctx["steps"][comp]["status"] = "failed"
-        ctx["steps"][comp]["preflight_failed"] = True
-        ctx["steps"][comp].setdefault("reason", "missing_dependency")
+        ctx["steps"][step_key]["status"] = "failed"
+        ctx["steps"][step_key]["preflight_failed"] = True
+        ctx["steps"][step_key].setdefault("reason", "missing_dependency")
     with open(context_file, "w") as f:
         json.dump(ctx, f, indent=2)
 
@@ -373,13 +394,16 @@ def main(argv):
         return 2
     root, comp = argv[0], argv[1]
     context_file = argv[2] if len(argv) > 2 and argv[2] not in ("", "-") else None
+    # Optional 4th positional: the step's effective id (the engine passes it; the CLI
+    # run-component path does not, so a standalone run keys by the component name).
+    step_id = argv[3] if len(argv) > 3 and argv[3] not in ("", "-") else None
     try:
-        rep = preflight(root, comp, deep=deep, context_file=context_file)
+        rep = preflight(root, comp, deep=deep, context_file=context_file, step_id=step_id)
     except Exception as e:
         sys.stderr.write("preflight error (%s): %s\n" % (comp, e))
         return 2
 
-    _persist(context_file, comp, rep)
+    _persist(context_file, resolve_effective_step_key(comp, step_id), rep)
 
     if want_json:
         print(json.dumps(rep, indent=2))

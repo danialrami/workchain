@@ -236,10 +236,14 @@ try:
 except Exception:
     ctx = {}
 ctx.setdefault('steps', {})
+# The engine exports __WC_STEP (the step's effective id) around every step; when set
+# it is the step's record key, so writes land in the id-keyed record — never the
+# component-name record that might belong to a different step of the same component.
+step_key = os.environ.get('__WC_STEP') or os.environ['__WC_COMP']
 entry = {'status': os.environ['__WC_ST']}
 if os.environ.get('__WC_RE'): entry['reason'] = os.environ['__WC_RE']
 if os.environ.get('__WC_ER'): entry['error'] = os.environ['__WC_ER']
-ctx['steps'][os.environ['__WC_COMP']] = entry
+ctx['steps'][step_key] = entry
 with open(cf, 'w') as f: json.dump(ctx, f, indent=2)
 PYEOF
 }
@@ -301,6 +305,11 @@ import sys
 
 ctx_file = os.environ['__WC_CF']
 comp = os.environ['__WC_COMP']
+# Record key = the engine's exported __WC_STEP (the step's effective id) when present,
+# else the component name. The component passes its own NAME here (it cannot know the
+# chain-given id); the engine exporting __WC_STEP is what routes the write to the right
+# step record. Without this, two steps of one component would merge into one outputs map.
+step_key = os.environ.get('__WC_STEP') or comp
 name = os.environ['__WC_NAME']
 path = os.environ['__WC_PATH']
 otype = os.environ['__WC_TYPE']
@@ -403,13 +412,13 @@ except Exception as e:
 if 'steps' not in ctx:
     ctx['steps'] = {}
 
-# Ensure component entry exists
-if comp not in ctx['steps']:
-    ctx['steps'][comp] = {}
+# Ensure the step record exists (under its effective id)
+if step_key not in ctx['steps']:
+    ctx['steps'][step_key] = {}
 
 # Ensure outputs dict exists
-if 'outputs' not in ctx['steps'][comp]:
-    ctx['steps'][comp]['outputs'] = {}
+if 'outputs' not in ctx['steps'][step_key]:
+    ctx['steps'][step_key]['outputs'] = {}
 
 # Register this output
 output_entry = {
@@ -430,24 +439,24 @@ if path_template:
 if metadata and isinstance(metadata, dict):
     output_entry.update(metadata)
 
-ctx['steps'][comp]['outputs'][name] = output_entry
+ctx['steps'][step_key]['outputs'][name] = output_entry
 
 # For backward compatibility, set 'output' field if not set and type is file/directory
-if otype in ['file', 'directory'] and 'output' not in ctx['steps'][comp]:
-    ctx['steps'][comp]['output'] = path
+if otype in ['file', 'directory'] and 'output' not in ctx['steps'][step_key]:
+    ctx['steps'][step_key]['output'] = path
 
 # Set output_dir based on output type
 if otype == 'file' and path:
     output_dir = os.path.dirname(path)
-    if 'output_dir' not in ctx['steps'][comp]:
-        ctx['steps'][comp]['output_dir'] = output_dir
+    if 'output_dir' not in ctx['steps'][step_key]:
+        ctx['steps'][step_key]['output_dir'] = output_dir
 elif otype == 'directory' and path:
-    if 'output_dir' not in ctx['steps'][comp]:
-        ctx['steps'][comp]['output_dir'] = path
+    if 'output_dir' not in ctx['steps'][step_key]:
+        ctx['steps'][step_key]['output_dir'] = path
 
 # Update status if provided
 if status:
-    ctx['steps'][comp]['status'] = status
+    ctx['steps'][step_key]['status'] = status
 
 with open(ctx_file, 'w') as f:
     json.dump(ctx, f, indent=2)

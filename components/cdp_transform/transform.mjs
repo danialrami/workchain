@@ -141,6 +141,9 @@ const record = {
   determinism_ok: undefined,      // emitted ONLY when both renders completed — see step.yaml
   render_sha256: null,
   render_sha256_repeat: null,
+  render_samples_sha256: null,
+  render_samples_sha256_repeat: null,
+  container_bytes_stable: null,
 };
 const writeRecord = async () => {
   await mkdir(dirname(recordPath), { recursive: true });
@@ -244,6 +247,32 @@ if (record.params_out_of_range || record.params_unknown) {
 }
 
 // ── render ──────────────────────────────────────────────────────────────────
+// SHA-256 over the DECODED samples, not the container. cdp-wasm's write path can stamp
+// wall-clock fields into the WAV header (the PEAK chunk timestamp and the LIST/adtl DATE
+// string), so two renders of bit-identical audio differ by a couple of container bytes
+// whenever they straddle a second boundary. Determinism is a claim about the audio, so it
+// must be decided on the samples; the container comparison is recorded separately as
+// container_bytes_stable without gating the step.
+// The digest covers the decoded PCM: rate, channel count, frame count, and every channel's
+// float32 samples. Same audio in, same digest out, whatever the container happens to say.
+const sampleDigest = (bytes) => {
+  const d = decodeWav(bytes);
+  const h = createHash('sha256');
+  const meta = Buffer.alloc(16);
+  meta.writeUInt32LE(d.sampleRate, 0);
+  meta.writeUInt32LE(d.numChannels, 4);
+  meta.writeUInt32LE(d.length, 8);
+  meta.writeUInt32LE(d.channelData.length, 12);
+  h.update(meta);
+  for (const ch of d.channelData) {
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(ch.length, 0);
+    h.update(len);
+    h.update(Buffer.from(ch.buffer, ch.byteOffset, ch.byteLength));
+  }
+  return h.digest('hex');
+};
+
 const cdp = new CDP();
 const srcBytes = new Uint8Array(await readFile(inputPath));
 const src = decodeAudio(srcBytes);
@@ -274,21 +303,28 @@ try {
 record.envelopes_all_applied =
   record.envelopes_requested.length === record.envelopes_applied.length;
 record.render_sha256 = createHash('sha256').update(bytes).digest('hex');
+record.render_samples_sha256 = sampleDigest(bytes);
 
-// Metamorphic: same input + same params => byte-identical audio. Both sides must
-// actually exist before we compare (an unguarded equality passes on None == None).
+// Metamorphic: same input + same params => bit-identical AUDIO. The gate is the
+// decoded-sample digest (sampleDigest); the container hash is kept as a recorded,
+// non-gating fact (container_bytes_stable) because the WAV header embeds wall-clock
+// fields and can differ on bit-identical audio. Both sides must actually exist before
+// we compare (an unguarded equality passes on None == None).
 if (record.deterministic_expected) {
   try {
     const again = await render();
     record.render_sha256_repeat = createHash('sha256').update(again).digest('hex');
-    record.determinism_ok = record.render_sha256_repeat === record.render_sha256;
+    record.render_samples_sha256_repeat = sampleDigest(again);
+    record.determinism_ok = record.render_samples_sha256_repeat === record.render_samples_sha256;
+    record.container_bytes_stable = record.render_sha256_repeat === record.render_sha256;
   } catch (e) {
     console.error(`cdp_transform: determinism re-render failed: ${e.message}`);
     record.determinism_ok = false;
   }
 } else {
-  // Catalog marks this effect randomised; equality is not a legitimate claim here.
+  // Determinism is not a legitimate claim here.
   record.determinism_ok = true;
+  record.container_bytes_stable = null;
   record.determinism_note = `not asserted: catalog marks this effect ${effect.parityExempt ? 'parityExempt' : 'paritySkip'} (${effect.parityExempt || 'no single-command native equivalent'})`;
 }
 

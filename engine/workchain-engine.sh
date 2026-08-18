@@ -163,8 +163,8 @@ run_steps() {
         return 0
     fi
 
-    local tag name b64 b64params step_config step_params
-    while IFS=$'	' read -r tag name b64 b64params <&3; do
+    local tag name id b64 b64params step_config step_params
+    while IFS=$'	' read -r tag name id b64 b64params <&3; do
         [[ -z "$tag" ]] && continue
         if [[ "$tag" == "SKIP" ]]; then
             log_info "Skipping disabled step: $name"
@@ -174,9 +174,9 @@ run_steps() {
         # Resolved params as JSON (serialized by the single Python resolver). Empty for
         # older plans — process_step treats an empty blob as "no params to record".
         step_params=$(printf '%s' "$b64params" | base64 -d 2>/dev/null)
-        if ! process_step "$name" "$step_config" "$step_params" </dev/null; then
+        if ! process_step "$name" "$id" "$step_config" "$step_params" </dev/null; then
             log_error "Chain halted: step '$name' failed"
-            mark_chain_failed "$name"
+            mark_chain_failed "$id"
             rm -f "$plan_file"
             exit 1
         fi
@@ -225,12 +225,12 @@ print(' '.join(c for c in cmds if shutil.which(c) is None))
 # no contract is reported "unverified" and passes (non-blocking); a declared contract
 # that fails halts the chain. Independent of the heavy uv venv — stdlib + ffmpeg only.
 verify_step() {
-    local step_name="$1"
+    local step_name="$1" step_id="${2:-$1}"
     local verifier="$WORKCHAIN_ROOT/lib/workchain_verify.py"
     [[ -f "$verifier" ]] || return 0  # back-compat: no verifier present → no-op
 
     local report rc
-    report=$(python3 "$verifier" "$WORKCHAIN_ROOT" "$step_name" "$CONTEXT_FILE" 2>&1)
+    report=$(python3 "$verifier" "$WORKCHAIN_ROOT" "$step_name" "$CONTEXT_FILE" "$step_id" 2>&1)
     rc=$?
     if [[ $rc -eq 0 ]]; then
         [[ -n "$report" ]] && echo "$report" | while IFS= read -r line; do log_debug "$line"; done
@@ -246,13 +246,13 @@ verify_step() {
 # preflight report into context.json. Cheap by default (model sha256 only with --deep). If the lib
 # isn't present (older checkout), fall back to the legacy commands-only preflight — back-compat.
 preflight_step() {
-    local step_name="$1"
+    local step_name="$1" step_id="${2:-$1}"
     local preflight="$WORKCHAIN_ROOT/lib/workchain_preflight.py"
     if [[ ! -f "$preflight" ]]; then
         preflight_requirements "$step_name"; return $?
     fi
     local report rc
-    report=$(python3 "$preflight" "$WORKCHAIN_ROOT" "$step_name" "$CONTEXT_FILE" 2>&1)
+    report=$(python3 "$preflight" "$WORKCHAIN_ROOT" "$step_name" "$CONTEXT_FILE" "$step_id" 2>&1)
     rc=$?
     if [[ $rc -eq 0 ]]; then
         [[ -n "$report" ]] && echo "$report" | while IFS= read -r line; do log_debug "$line"; done
@@ -263,7 +263,8 @@ preflight_step() {
 }
 
 # Persist a step's resolved params (JSON, from the single Python resolver) into
-# context.json under steps.<name>.params, so the verifier can resolve numeric targets
+# context.json under steps.<id>.params — id being the step's EFFECTIVE id (its `id:`,
+# defaulting to its name) — so the verifier can resolve numeric targets
 # from what the step ACTUALLY ran with — not a schema default or a globals alias. The
 # JSON is loaded, never regex-parsed (single source of truth stays in workchain_yaml.py).
 # Runs before run.sh; register_output preserves existing step keys, so params survive.
@@ -289,9 +290,21 @@ PYEOF
 }
 
 process_step() {
+    # step_name is the COMPONENT name — the directory resolved, the run.sh sourced, the
+    # step.yaml contract enforced. step_id is the step's EFFECTIVE id (`id:` in the
+    # chain, defaulting to the component name) — the key its record lives under in
+    # context.json's `steps` map.
     local step_name="$1"
-    local step_config="$2"
-    local step_params="${3:-}"
+    local step_id="${2:-$1}"
+    local step_config="$3"
+    local step_params="${4:-}"
+
+    # Export the effective id for the whole step execution. The shared context writers
+    # the component invokes — register_output / ctx_set_status in lib/common-utils.sh —
+    # key ctx.steps on __WC_STEP when it is set, so every write lands in the SAME record
+    # the engine's record+verify helpers key on. Unset (CLI run-component path), they
+    # fall back to the component name, so single-instance behavior is unchanged.
+    export __WC_STEP="$step_id"
 
     local step_enabled=$(echo "$step_config" | grep -E "^\s*enabled:" | sed 's/.*enabled: *//' | tr -d ' 
 ')
@@ -322,9 +335,9 @@ process_step() {
     # component's light code path was still forced to satisfy its heavy dependencies —
     # e.g. a component whose remote backend demands a heavy venv it never actually loads.
     # The verifier reads the same key post-run, so one write serves both bookends.
-    record_step_params "$step_name" "$step_params"
+    record_step_params "$step_id" "$step_params"
 
-    if ! preflight_step "$step_name"; then
+    if ! preflight_step "$step_name" "$step_id"; then
         log_error "Step failed dependency preflight: $step_name"
         return 1
     fi
@@ -345,13 +358,13 @@ process_step() {
     # Turn "ran" into "proven": enforce the component's declared contract before its
     # output is allowed to become the next step's input. Honest failure beats a
     # silently-wrong output flowing downstream.
-    if ! verify_step "$step_name"; then
+    if ! verify_step "$step_name" "$step_id"; then
         log_error "Step failed verification: $step_name"
         return 1
     fi
 
     # Update input_file to point to this step's primary output
-    update_input_file "$step_name"
+    update_input_file "$step_id"
 
     log_info "Step completed: $step_name  ($((SECONDS - __step_t0))s)  ←  $__in_name"
 }

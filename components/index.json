@@ -25,7 +25,7 @@
       "version": "1.0"
     },
     {
-      "definition_hash": "sha256:a6636ae7a5f8654128cbe42728563b0a979629bccb5ca4c620c0d3db6fa79ab0",
+      "definition_hash": "sha256:56ba37129de38373a9fd269a2d5fd7f15db303321db0da1950ea889392cec211",
       "description": "Composers Desktop Project sound transformation via cdp-wasm (232 typed spectral / granular / waveset effects), under a fail-closed parameter and output contract",
       "dir": "components/cdp_transform",
       "name": "cdp_transform",
