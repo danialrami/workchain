@@ -37,7 +37,7 @@ For every unit:
 
 ## Protected branch (do not touch)
 
-`refs/heads/ciani/cdp-examples-for-oliver` is the caller's branch. It is **out of scope for the entire fan-out**: no builder, reviewer, or integrator may checkout, edit, push to it, or use it as a base. PRs only ever target `fixes`/`roadmap`; branches are `agent/NN-*` only.
+A caller-owned branch `cdp-examples-for-oliver` was added outside this flow. Note its exact branch name in the remote when inspecting (`git ls-remote --heads`); it is **out of scope for the entire fan-out**: no builder, reviewer, or integrator may checkout, edit, push to it, or use it as a base. PRs only ever target `fixes`/`roadmap`; branches are `agent/NN-*` only.
 
 ## Surface / ownership table (the collision registry)
 
