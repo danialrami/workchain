@@ -1,0 +1,14 @@
+name: "probe"
+description: "Issue #22 reproduction — two steps of one component with NO ids. Must FAIL validation: both resolve to the effective id 'cdp_transform', which would silently overwrite the first step's verification record. This file is a deliberately-invalid fixture under chains/tests/fixtures/, so validate-all and the chains listing skip it."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: hilite.trace
+      values_json: '{"partials": 8}'
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: blur.blur
+      values_json: '{"windows": 24}'

@@ -57,7 +57,8 @@ The Bash validator (`engine/chain-validator.sh`) checks the same three fields us
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `name` | string | yes | Must match the name of a subdirectory under `components/`. The validator checks that the directory exists and contains both `step.yaml` and `run.sh`. |
+| `name` | string | yes | Must match the name of a subdirectory under `components/`. The validator checks that the directory exists and contains both `step.yaml` and `run.sh`. **`name` is what gets executed** — the component resolved, its `run.sh` sourced, its `step.yaml` contract loaded. |
+| `id` | string | no | **The step's record identity.** Defaults to the step `name`. See [Step identity (`id`)](#step-identity-id). |
 | `enabled` | boolean | no | Default `true`. Set to `false` to skip this step. The engine logs "Skipping disabled step" and moves on without executing or verifying it. |
 | `params` | mapping | no | Per-step parameter overrides. See [Parameter Precedence](#parameter-precedence). |
 
@@ -83,6 +84,58 @@ steps:
 
 ---
 
+## Step identity (`id`)
+
+Each step may declare an optional `id:`. The **effective id** is the `id` value when it
+is present and non-empty, otherwise the step's `name` (the component name). The effective
+id is the key the step's record lives under in `context.json`'s `steps` map — nothing
+else.
+
+`name` and `id` are deliberately two different things:
+
+| | `name` | `id` |
+|---|--------|------|
+| Resolves | the component: `components/<name>/` dir, `run.sh`, `step.yaml` contract | nothing — a pure record key |
+| Used by | execution, file resolution, preflight, contract loading | `context.json` `steps` keying, the `__WC_STEP` env, `steps.<id>.*` lookups |
+| Identical? | — | only when `id:` is absent (the default) |
+
+The engine keys `context.json`'s `steps` on the effective id, so every write and read
+for one step touches the same record:
+
+- `record_step_params` writes `steps.<id>.params` before the step runs;
+- `register_output` / `ctx_set_status` write `steps.<id>.outputs` / status while it runs;
+- `lib/workchain_preflight.py` writes `steps.<id>.preflight`;
+- `lib/workchain_verify.py` writes `steps.<id>.verification` afterwards.
+
+A chain may therefore run two steps of the same component and each keeps its own record
+under its own key — neither overwrites the other:
+
+```yaml
+steps:
+  - name: cdp_transform
+    id: trace
+    params:
+      effect: hilite.trace
+  - name: cdp_transform
+    id: blur
+    params:
+      effect: blur.blur
+```
+
+`context.json` then holds `steps.trace` and `steps.blur`, each with its own `params`,
+`outputs`, and `verification` — instead of the second silently deleting the first's proof.
+
+**Uniqueness is enforced.** Validation rejects a chain in which two steps resolve to the
+same effective id (`workchain validate`, and the engine's own validation path, in both
+strict and non-strict mode), with an error naming both steps and the colliding id. The
+`steps` map must be a faithful per-step record; a chain the engine cannot record honestly
+is refused rather than recorded wrongly. This includes disabled steps.
+
+`id:` must be a single-line scalar — block scalars are not supported, see
+[Known Limitations](#known-limitations-and-parser-gotchas).
+
+---
+
 ## Parameter Precedence
 
 The engine resolves the effective parameter set for each step from three sources, in ascending priority:
@@ -91,7 +144,7 @@ The engine resolves the effective parameter set for each step from three sources
 2. **Chain globals** — values from the chain's `globals` mapping, filtered to keys that are known params of this component. A key in `globals` that does not match any param in the component's `params_schema` is silently dropped.
 3. **Step `params`** — values in the step's own `params` mapping. These win over globals and defaults unconditionally.
 
-The resolver (`workchain_yaml.resolve_params`) applies this precedence and passes the merged result to the component as the `STEP_CONFIG` environment block (a flat YAML mapping that `run.sh` reads via `get_param`). The verifier sees the same resolved params via `context.json` under `steps.<name>.params`.
+The resolver (`workchain_yaml.resolve_params`) applies this precedence and passes the merged result to the component as the `STEP_CONFIG` environment block (a flat YAML mapping that `run.sh` reads via `get_param`). The verifier sees the same resolved params via `context.json` under `steps.<id>.params` — `id` being the step's effective id (its `id:`, defaulting to its `name`). For chains written before `id:` existed the key is the component name, unchanged.
 
 **Legacy alias (normalization only):** if `globals.lufs_target` is set and the step is `normalization` and `target_lufs` is not in the step's own `params`, the resolver copies `globals.lufs_target` to `resolved.target_lufs`. This alias exists for backward compatibility with chains written before the param was renamed.
 
