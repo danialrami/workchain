@@ -55,7 +55,8 @@
 #
 # Local equivalent (everything except the publish itself):
 #   sudo apt-get install -y ffmpeg
-#   cd cli && npm ci && cd ..
+#   npm ci                        # root manifest: the CLI's runtime dependencies
+#   cd cli && npm ci              # cli manifest: vitest only
 #   ./tools/release-check.sh
 #   node cli/bin/workchain.js registry check
 #   node cli/bin/workchain.js validate all --strict
@@ -141,8 +142,14 @@ jobs:
             exit 1
           fi
 
+      # The CLI's runtime dependencies live in the ROOT manifest only (single source of
+      # truth — see cli/test/import-audit.test.js); cli/package.json is packaging metadata
+      # plus the vitest devDependency. Install both frozen lockfiles or the CLI cannot
+      # resolve 'commander' at startup (ERR_MODULE_NOT_FOUND).
       - name: Install Node dependencies (frozen)
-        run: cd cli && npm ci
+        run: |
+          npm ci
+          cd cli && npm ci
 
       # GATE: the real one. Runs every light chain end to end and confirms each step's
       # verification record says verified — and confirms the verifier still FAILS on a chain

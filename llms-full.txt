@@ -148,6 +148,7 @@ claim has been independently checked.
 
 ```bash
 git clone https://github.com/lufs-audio/workchain
+npm install                            # root manifest: the CLI's runtime dependencies
 cd workchain/cli && npm install && npm link
 cd ..
 
@@ -337,7 +338,8 @@ match, because editing the README to agree with the code can silently bless a bu
 ## Commands
 
 ```bash
-cd cli && npm install && npm link      # then `workchain` is on PATH
+npm install                            # root manifest: the CLI's runtime deps (single source of truth)
+cd cli && npm install && npm link      # cli manifest: vitest; then `workchain` is on PATH
 workchain components                   # what's installed
 workchain doctor                       # inbound preflight across the registry
 workchain chains                       # available chains
@@ -3510,8 +3512,9 @@ ffprobe -version | head -1
 From the workchain repository root:
 
 ```bash
+npm install       # root manifest: the CLI's runtime dependencies
 cd cli
-npm install
+npm install       # cli manifest: vitest only (test tooling)
 npm link
 ```
 
@@ -6141,8 +6144,9 @@ off target — where the component itself does not notice, but the verifier does
 ## 0. Install the CLI
 
 ```bash
+npm install       # root manifest: the CLI's runtime dependencies
 cd workchain/cli
-npm install
+npm install       # cli manifest: vitest only (test tooling)
 npm link
 cd ..
 

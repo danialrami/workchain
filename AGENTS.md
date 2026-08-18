@@ -137,7 +137,8 @@ match, because editing the README to agree with the code can silently bless a bu
 ## Commands
 
 ```bash
-cd cli && npm install && npm link      # then `workchain` is on PATH
+npm install                            # root manifest: the CLI's runtime deps (single source of truth)
+cd cli && npm install && npm link      # cli manifest: vitest; then `workchain` is on PATH
 workchain components                   # what's installed
 workchain doctor                       # inbound preflight across the registry
 workchain chains                       # available chains

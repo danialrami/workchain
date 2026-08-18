@@ -148,6 +148,7 @@ claim has been independently checked.
 
 ```bash
 git clone https://github.com/lufs-audio/workchain
+npm install                            # root manifest: the CLI's runtime dependencies
 cd workchain/cli && npm install && npm link
 cd ..
 

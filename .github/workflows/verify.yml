@@ -11,7 +11,8 @@
 #
 # Local equivalent:
 #   sudo apt-get install -y ffmpeg
-#   cd cli && npm install && npm test
+#   npm ci                        # root manifest: the CLI's runtime dependencies
+#   cd cli && npm ci && npm test  # cli manifest: vitest only, then the unit suite
 #   node cli/bin/workchain.js registry check
 #   node cli/bin/workchain.js validate all --strict
 #   node cli/bin/workchain.js doctor          # informational
@@ -59,11 +60,17 @@ jobs:
         with:
           node-version: '20'
 
-      # cli/package-lock.json is committed, so the install is frozen: the lockfile is the
-      # input, not a suggestion. npm ci also fails loudly when the lockfile and package.json
-      # have drifted, which npm install would quietly paper over.
+      # The CLI's runtime dependencies live in the ROOT manifest only — the single source
+      # of truth, asserted by cli/test/import-audit.test.js. cli/package.json is packaging
+      # metadata plus the vitest devDependency. Both lockfiles are committed, so both
+      # installs are frozen: the lockfile is the input, not a suggestion, and npm ci fails
+      # loudly on drift that npm install would quietly paper over. Installing ONLY
+      # cli/package.json would leave the CLI unable to resolve 'commander' at startup
+      # (ERR_MODULE_NOT_FOUND) — the regression that broke main.
       - name: Install Node dependencies (frozen)
-        run: cd cli && npm ci
+        run: |
+          npm ci
+          cd cli && npm ci
 
       - name: Run unit tests
         run: cd cli && npm test

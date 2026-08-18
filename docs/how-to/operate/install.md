@@ -32,8 +32,9 @@ ffprobe -version | head -1
 From the workchain repository root:
 
 ```bash
+npm install       # root manifest: the CLI's runtime dependencies
 cd cli
-npm install
+npm install       # cli manifest: vitest only (test tooling)
 npm link
 ```
 

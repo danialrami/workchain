@@ -18,8 +18,9 @@ off target — where the component itself does not notice, but the verifier does
 ## 0. Install the CLI
 
 ```bash
+npm install       # root manifest: the CLI's runtime dependencies
 cd workchain/cli
-npm install
+npm install       # cli manifest: vitest only (test tooling)
 npm link
 cd ..
 
