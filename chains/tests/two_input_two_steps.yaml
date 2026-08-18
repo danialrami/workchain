@@ -1,0 +1,14 @@
+name: "Two mix steps with in2, distinct ids"
+description: "Id/interplay regression for two-input steps (issue #10 + unit 03's id model): two mix steps in one chain, each with its own in2:, must each keep their own record in context.json — inputs, params, outputs, verification — under their own effective id, instead of the second overwriting the first's record."
+version: "1.0"
+steps:
+  - name: mix
+    id: mix_a
+    in2: "chains/examples/fixtures/in_b.wav"
+    params:
+      duration_mode: longest
+  - name: mix
+    id: mix_b
+    in2: "chains/examples/fixtures/in_b.wav"
+    params:
+      duration_mode: first

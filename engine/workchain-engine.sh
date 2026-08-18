@@ -163,8 +163,8 @@ run_steps() {
         return 0
     fi
 
-    local tag name id b64 b64params step_config step_params
-    while IFS=$'	' read -r tag name id b64 b64params <&3; do
+    local tag name id b64 b64params b64in2 step_config step_params step_in2
+    while IFS=$'	' read -r tag name id b64 b64params b64in2 <&3; do
         [[ -z "$tag" ]] && continue
         if [[ "$tag" == "SKIP" ]]; then
             log_info "Skipping disabled step: $name"
@@ -174,7 +174,11 @@ run_steps() {
         # Resolved params as JSON (serialized by the single Python resolver). Empty for
         # older plans — process_step treats an empty blob as "no params to record".
         step_params=$(printf '%s' "$b64params" | base64 -d 2>/dev/null)
-        if ! process_step "$name" "$id" "$step_config" "$step_params" </dev/null; then
+        # The step's declared second-input spec (`in2:` path/glob, from the same
+        # resolver). Empty for chains without a second input — single-input steps are
+        # byte-identical to before.
+        step_in2=$(printf '%s' "$b64in2" | base64 -d 2>/dev/null)
+        if ! process_step "$name" "$id" "$step_config" "$step_params" "$step_in2" </dev/null; then
             log_error "Chain halted: step '$name' failed"
             mark_chain_failed "$id"
             rm -f "$plan_file"
@@ -289,15 +293,103 @@ with open(cf, "w") as f:
 PYEOF
 }
 
+# Stage a step's declared second input (`in2:` in the chain, issue #10). Resolves the
+# path/glob against the engine's CWD — the same rule every other engine path follows —
+# requires EXACTLY one real audio file (a glob matching several files is ambiguous and
+# fails closed), refuses a self-reference (in2 resolving to the same file as the step's
+# primary input), and records provenance into context.json under steps.<id>.inputs:
+#
+#     steps.<id>.inputs = {"in": {"path": ...}, "in2": {"path": ..., "sha256": ...}}
+#
+# so the run JSON names which input a two-input post-condition measured. Echoes the
+# resolved path on stdout ONLY — the caller exports it as WORKCHAIN_INPUT_2, the single
+# documented channel the component reads. All diagnostics go to stderr (log_error).
+stage_second_input() {
+    local step_id="$1" spec="$2"
+    local matches="" last="" n=0 p
+    matches=$(python3 - "$spec" << 'PYEOF'
+import glob, sys
+spec = sys.argv[1]
+hits = sorted(glob.glob(spec)) if glob.has_magic(spec) else ([spec] if spec else [])
+print("\n".join(hits))
+PYEOF
+)
+    while IFS= read -r p; do n=$((n + 1)); last="$p"; done <<< "$matches"
+    if [[ $n -eq 0 ]]; then
+        log_error "Second input (in2:) does not resolve to any file: $spec"
+        return 1
+    fi
+    if [[ $n -ne 1 ]]; then
+        log_error "Second input (in2:) resolves to $n files — a glob must match exactly one: $spec"
+        return 1
+    fi
+    if [[ ! -f "$last" ]]; then
+        log_error "Second input not found: $last"
+        return 1
+    fi
+    if ! is_audio_file "$last"; then
+        log_error "Second input is not a supported audio format: $last"
+        return 1
+    fi
+    # Self-reference guard: a step whose in2 resolves to its own primary input would
+    # produce a record where in.path == in2.path with nothing actually staged — refuse
+    # it loudly rather than record a lie.
+    local cur_input
+    cur_input=$(ctx_get "$CONTEXT_FILE" "input_file")
+    if [[ -n "$cur_input" ]]; then
+        local ac ai
+        ac=$(cd "$(dirname "$cur_input")" 2>/dev/null && pwd)"/$(basename "$cur_input")"
+        ai=$(cd "$(dirname "$last")" 2>/dev/null && pwd)"/$(basename "$last")"
+        if [[ "$ac" == "$ai" ]]; then
+            log_error "in2 resolves to the same file as the step's primary input: $last — a step cannot consume itself. Copy the file to a second path if you intend to mix it with itself."
+            return 1
+        fi
+    fi
+    local sha
+    sha=$(python3 - "$last" << 'PYEOF'
+import hashlib, sys
+h = hashlib.sha256()
+with open(sys.argv[1], "rb") as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        h.update(chunk)
+print(h.hexdigest())
+PYEOF
+)
+    if [[ -z "$sha" ]]; then
+        log_error "Could not hash second input: $last"
+        return 1
+    fi
+    __WC_CF="$CONTEXT_FILE" __WC_STEP="$step_id" __WC_IN1="$cur_input" \
+    __WC_IN2="$last" __WC_SHA="$sha" python3 << 'PYEOF' 2>/dev/null || true
+import json, os
+cf = os.environ["__WC_CF"]; step = os.environ["__WC_STEP"]
+try:
+    with open(cf) as f:
+        ctx = json.load(f)
+except Exception:
+    ctx = {}
+rec = ctx.setdefault("steps", {}).setdefault(step, {})
+rec["inputs"] = {
+    "in": {"path": os.environ["__WC_IN1"]},
+    "in2": {"path": os.environ["__WC_IN2"], "sha256": os.environ["__WC_SHA"]},
+}
+with open(cf, "w") as f:
+    json.dump(ctx, f, indent=2)
+PYEOF
+    echo "$last"
+}
+
 process_step() {
     # step_name is the COMPONENT name — the directory resolved, the run.sh sourced, the
     # step.yaml contract enforced. step_id is the step's EFFECTIVE id (`id:` in the
     # chain, defaulting to the component name) — the key its record lives under in
-    # context.json's `steps` map.
+    # context.json's `steps` map. step_in2 is the step's declared `in2:` second-input
+    # spec (path/glob), empty for single-input steps.
     local step_name="$1"
     local step_id="${2:-$1}"
     local step_config="$3"
     local step_params="${4:-}"
+    local step_in2="${5:-}"
 
     # Export the effective id for the whole step execution. The shared context writers
     # the component invokes — register_output / ctx_set_status in lib/common-utils.sh —
@@ -327,6 +419,23 @@ process_step() {
     if [[ ! -d "$COMPONENTS_DIR/$step_name" ]]; then
         log_error "Component not found: $step_name"
         return 1
+    fi
+
+    # Second input (issue #10): stage the step's declared `in2:` BEFORE anything runs,
+    # and export its resolved path as WORKCHAIN_INPUT_2 — the ONE documented channel a
+    # two-input component reads (docs/format.md). Unset for single-input steps, whose
+    # behaviour is byte-identical to before. Staging fails closed: a spec that resolves
+    # to no file, to several files, to a non-audio file, or to the step's own primary
+    # input halts the chain here, before run.sh is ever sourced.
+    export WORKCHAIN_INPUT_2=""
+    if [[ -n "$step_in2" ]]; then
+        local staged_in2
+        if ! staged_in2=$(stage_second_input "$step_id" "$step_in2"); then
+            log_error "Step failed staging its second input: $step_name"
+            return 1
+        fi
+        export WORKCHAIN_INPUT_2="$staged_in2"
+        log_info "Step $step_name: staged second input → $staged_in2"
     fi
 
     # Record resolved params FIRST. Preflight's `when:` requirement guards resolve from

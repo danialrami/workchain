@@ -57,6 +57,7 @@ A green exit code is not success. Every component declares:
 - `docs/explanation/architecture.md` — how the pieces fit (one parser, filesystem registry, execution flow, tiers)
 - `docs/explanation/verification.md` — the prime directive and its consequences (fail-open/fail-closed, metamorphic, tolerances)
 - `docs/explanation/agent-first.md` — why the interfaces are designed for agents
+- `docs/product/workchain/08-chain-topology.md` — chain topology design: the linear model, the in2: second-input primitive, provenance, and what is deliberately out of scope
 - `docs/faq.md` — frequently asked questions, by audience (operators, authors, agents)
 - `docs/troubleshooting.md` — common failures and how to fix them
 - `docs/README.md` — full Diátaxis map and per-audience reading paths

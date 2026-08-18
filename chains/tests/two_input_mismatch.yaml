@@ -1,0 +1,8 @@
+name: "Two-input negative: second input longer than the primary"
+description: "Regression chain for the two-input prove-it-can-fail path (issue #10). The mix step runs with duration_mode: longest and an in2: file that is LONGER than the chain input, so the mix output stretches past the primary timeline and the independent audio_duration_matches re-measurement must catch it. Generate the in2 before running: ffmpeg -f lavfi -i sine=frequency=660:duration=4 in_b_long.wav — then, from the repo root: ./engine/workchain-engine.sh -c chains/tests/two_input_mismatch.yaml <2s.wav> -o out. Expected: verification FAILED on mix_preserves_primary_duration, engine exits non-zero."
+version: "1.0"
+steps:
+  - name: mix
+    in2: "in_b_long.wav"
+    params:
+      duration_mode: longest

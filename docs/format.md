@@ -59,6 +59,7 @@ The Bash validator (`engine/chain-validator.sh`) checks the same three fields us
 |-----|------|----------|-------------|
 | `name` | string | yes | Must match the name of a subdirectory under `components/`. The validator checks that the directory exists and contains both `step.yaml` and `run.sh`. **`name` is what gets executed** — the component resolved, its `run.sh` sourced, its `step.yaml` contract loaded. |
 | `id` | string | no | **The step's record identity.** Defaults to the step `name`. See [Step identity (`id`)](#step-identity-id). |
+| `in2` | string | no | Declares a **second audio input** for this step: a path or glob to a file on disk. See [Second input (`in2:`)](#second-input-in2). The component must declare `accepts_second_input: true` or validation refuses the step. |
 | `enabled` | boolean | no | Default `true`. Set to `false` to skip this step. The engine logs "Skipping disabled step" and moves on without executing or verifying it. |
 | `params` | mapping | no | Per-step parameter overrides. See [Parameter Precedence](#parameter-precedence). |
 
@@ -136,6 +137,91 @@ is refused rather than recorded wrongly. This includes disabled steps.
 
 ---
 
+## Second input (`in2:`)
+
+A step may declare a second audio input with `in2:`. This is the first prerequisite
+of chain topology beyond strict linear: a step can consume one extra file alongside
+the chain input. The design and its scope are explained in
+`docs/product/workchain/08-chain-topology.md`. `in2:` is a **single-line string** — a
+path or glob to a file on disk. It is resolved and staged by the engine; the component
+receives it through exactly one documented channel. There is deliberately **no second
+declaration channel**: `in2:` in the chain is the only way to supply a second input.
+
+### Accepted form
+
+`in2:` must be a non-empty string naming a file, or a glob naming files:
+
+```yaml
+steps:
+  - name: mix             # a component that declares accepts_second_input: true
+    in2: "chains/examples/fixtures/in_b.wav"   # exact path
+    params: { duration_mode: longest }
+```
+
+A **glob** (containing `* ? [`) is expanded and must match **exactly one** file — zero
+matches (nothing to stage) or several (ambiguous) both fail closed at stage time.
+Resolution base is the **engine's working directory** — the same rule as every other
+engine path (`-c`/chain, the input, `-o`/output). A reference to *another step's
+output* is **not** accepted: outputs-as-inputs and graph topology beyond two inputs are
+explicitly out of scope for this unit (see the topology doc).
+
+### Component requirement
+
+A component that consumes a second input must declare it in its `step.yaml`:
+
+```yaml
+accepts_second_input: true
+```
+
+Validation **refuses** a chain step that declares `in2:` against a component without
+this declaration — so a second input can never be silently dropped by a component that
+does not know what to do with it.
+
+### Staging and routing
+
+1. **Validation** (`lib/workchain_yaml.py validate`) checks the syntax and the
+   `accepts_second_input` gate. It does **not** touch the filesystem — whether the
+   `in2:` path exists is a runtime fact of the machine running the chain.
+2. **Staging** (`engine/workchain-engine.sh` `stage_second_input`), before `run.sh`:
+   expands the glob, requires exactly one real audio file (`is_audio_file`), refuses a
+   self-reference (`in2:` resolving to the step's own primary input), and computes the
+   file's sha256. Fail closed at any point — the step never runs on a bad spec.
+3. **Routing**: the resolved path is exported as **`WORKCHAIN_INPUT_2`** — the ONE
+   documented channel. The component reads the primary input through the existing
+   mechanism (`context.json` `input_file`) and the second through this env var. For a
+   single-input step the env var is exported empty, and nothing else changes (byte-
+   identical behaviour).
+4. **Provenance**: the run JSON records both inputs' resolved paths (and the second
+   input's sha256) under the step's effective id:
+
+   ```json
+   "steps": {
+     "mix": {
+       "inputs": {
+         "in":  { "path": "<primary input>" },
+         "in2": { "path": "<second input>", "sha256": "<hex>" }
+       }
+     }
+   }
+   ```
+
+   This is what lets a two-input post-condition name *which* input's fact it measured.
+   Keys recorded only when the step declares `in2:`; single-input steps gain nothing.
+
+### Verification model
+
+`lib/workchain_verify.py` resolves two-input records: `resolve_input_path(ctx,
+step_key, "in"|"in2")` reads the recorded provenance, and the primary-input resolution
+(`_resolve_source`) falls back to it. Post-condition classes are **not** added in this
+unit (the POST_CHECKS owner does that); the model is that a two-input post-condition
+names an input (`in`/`in2`) and measures a fact about it. The demo `mix` component
+shows both halves available today: an **independent** re-measurement of the primary
+timeline (`audio_duration_matches`) and a **component-written** fact sidecar about
+both inputs (`json_fields_within`) — see `components/mix/README.md` for the honesty
+split.
+
+---
+
 ## Parameter Precedence
 
 The engine resolves the effective parameter set for each step from three sources, in ascending priority:
@@ -166,6 +252,7 @@ Each component directory must contain a `step.yaml` file. The file is a YAML map
 | `outputs` | mapping | no | Declared output artifacts. See [`outputs`](#outputs). |
 | `requirements` | mapping | no | Inbound dependency declarations. See [`requirements`](#requirements). |
 | `verify` | mapping | no | Outbound contract declarations. See [`verify`](#verify). |
+| `accepts_second_input` | boolean | no | Declares the component consumes a **second input** via the `in2:` channel (issue #10). Validation rejects any chain step that declares `in2:` on a component without this. See [Second input (`in2:`)](#second-input-in2). |
 
 ---
 
