@@ -45,8 +45,8 @@ on:
 
 jobs:
   verify:
-    name: Verify (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: Verify ([self-hosted, lufs])
+    runs-on: [self-hosted, lufs]
 
     steps:
       - name: Checkout
