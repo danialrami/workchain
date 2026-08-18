@@ -69,8 +69,8 @@ on:
 
 jobs:
   shellcheck:
-    name: ShellCheck (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: ShellCheck ([self-hosted, lufs])
+    runs-on: [self-hosted, lufs]
 
     steps:
       - name: Checkout
