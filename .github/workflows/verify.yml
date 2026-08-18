@@ -43,10 +43,22 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Verify ([self-hosted, lufs])
     runs-on: [self-hosted, lufs]
+    # Fleet jobs run only for the canonical repo's own authors: main pushes, or PRs whose
+    # head branch lives in lufs-audio/workchain AND whose actor is allowlisted below. Fork
+    # PRs and any other actor are skipped outright — they never touch a self-hosted runner.
+    # Add approved bot logins (e.g. "dependabot[bot]") to the list when you okay them.
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["danialrami"]'), github.actor))
 
     steps:
       - name: Checkout
