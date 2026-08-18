@@ -1,0 +1,6 @@
+name: "Two-input unsupported component (deliberately INVALID)"
+description: "Repro for the fail-closed schema gate (issue #10): declaring in2: on a component that does not declare accepts_second_input: true must be a validation ERROR, so the second input can never be silently dropped. This chain is a fixture — it exists to FAIL validation (like the issue #22 duplicate-id probe) and must not be treated as a registered chain."
+version: "1.0"
+steps:
+  - name: normalization
+    in2: "some/second/input.wav"

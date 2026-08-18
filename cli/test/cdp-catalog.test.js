@@ -12,8 +12,10 @@ import {
 
 // A small, hand-checkable catalog standing in for cdp-wasm's EFFECTS: covers a
 // plain numeric-param effect, a multiOut effect (output count only knowable at
-// runtime), a choices-only param (no numeric min/max), and a param whose default
-// is 0 (a falsy-but-real value that must survive the mapping).
+// runtime), a choices-only param (no numeric min/max), a param whose default
+// is 0 (a falsy-but-real value that must survive the mapping), and the two
+// stereoUnsafe classes from the installed catalog — setsChannels: true and
+// input: 'stereo'.
 const FIXTURE = [
   {
     id: 'blur.blur',
@@ -25,6 +27,8 @@ const FIXTURE = [
   { id: 'housekeep.split', multiOut: true, params: [] },
   { id: 'stretch.time', params: [{ name: 'factor', min: 0.25, max: 4, default: 1 }] },
   { id: 'stretch.octave', params: [{ name: 'octaves', min: 0, max: 24, default: 0 }] },
+  { id: 'reverb.reverb', setsChannels: true, params: [] },
+  { id: 'phase.stereo', input: 'stereo', params: [] },
 ];
 
 function fakePackage(tag) {
@@ -59,20 +63,35 @@ describe('formatEffects', () => {
         id: 'blur.blur',
         group: 'blur',
         outputs: 1,
+        stereoUnsafe: false,
         params: [
           { name: 'windows', min: 1, max: 100, default: 10 },
           { name: 'mode', min: null, max: null, default: 'mix' },
         ],
       },
-      { id: 'housekeep.split', group: 'housekeep', outputs: null, params: [] },
-      { id: 'stretch.time', group: 'stretch', outputs: 1, params: [{ name: 'factor', min: 0.25, max: 4, default: 1 }] },
-      { id: 'stretch.octave', group: 'stretch', outputs: 1, params: [{ name: 'octaves', min: 0, max: 24, default: 0 }] },
+      { id: 'housekeep.split', group: 'housekeep', outputs: null, stereoUnsafe: false, params: [] },
+      { id: 'stretch.time', group: 'stretch', outputs: 1, stereoUnsafe: false, params: [{ name: 'factor', min: 0.25, max: 4, default: 1 }] },
+      { id: 'stretch.octave', group: 'stretch', outputs: 1, stereoUnsafe: false, params: [{ name: 'octaves', min: 0, max: 24, default: 0 }] },
+      { id: 'reverb.reverb', group: 'reverb', outputs: 1, stereoUnsafe: true, params: [] },
+      { id: 'phase.stereo', group: 'phase', outputs: 1, stereoUnsafe: true, params: [] },
     ]);
   });
 
   it('never drops a falsy-but-real default (0 must survive)', () => {
     const [row] = formatEffects([{ id: 'x.y', params: [{ name: 'gain', min: 0, max: 1, default: 0 }] }]);
     expect(row.params[0].default).toBe(0);
+  });
+
+  it('derives stereoUnsafe from setsChannels or input:stereo, never from mono:true alone', () => {
+    const byId = Object.fromEntries(formatEffects(FIXTURE).map((r) => [r.id, r]));
+    expect(byId['reverb.reverb'].stereoUnsafe).toBe(true); // setsChannels: true
+    expect(byId['phase.stereo'].stereoUnsafe).toBe(true);  // input: 'stereo'
+    expect(byId['blur.blur'].stereoUnsafe).toBe(false);    // channel-preserving control
+    // mono-only effects run per channel and preserve the source's channel count.
+    // Flagging them would conflate the input contract (mono) with the output
+    // contract (stereoUnsafe), so they must stay unflagged.
+    const [monoOnly] = formatEffects([{ id: 'splinter.into', mono: true, params: [] }]);
+    expect(monoOnly.stereoUnsafe).toBe(false);
   });
 });
 
@@ -82,8 +101,8 @@ describe('buildCatalog', () => {
       { lib: { EFFECTS: FIXTURE }, source: 'node_modules', dir: null, version: '9.9.9' },
       { component: 'cdp_transform' }
     );
-    expect(catalog.effect_count).toBe(4);
-    expect(catalog.group_count).toBe(3); // blur.* appears twice; groups are deduped
+    expect(catalog.effect_count).toBe(6);
+    expect(catalog.group_count).toBe(5); // stretch.* appears twice; groups are deduped
     expect(catalog.effects.length).toBe(catalog.effect_count);
   });
 
@@ -112,13 +131,14 @@ describe('formatCatalogHuman', () => {
     );
     const human = formatCatalogHuman(catalog);
     expect(formatCatalogHuman(catalog)).toBe(human); // deterministic
-    expect(human).toContain('4 effects across 3 groups');
+    expect(human).toContain('6 effects across 5 groups');
     expect(human).toContain('resolved from env (/tmp/fake)');
     for (const row of catalog.effects) expect(human).toContain(row.id); // every effect
     expect(human).toContain('windows=10 (1..100)');     // numeric range
     expect(human).toContain('mode="mix" (choices)');    // choices-only param
     expect(human).toContain('outputs=multi');           // multiOut
     expect(human).toContain('outputs=1');               // single-output
+    expect(human).toContain('stereoUnsafe');            // flagged effect marker (setsChannels / input:stereo)
   });
 });
 

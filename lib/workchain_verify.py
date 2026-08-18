@@ -225,6 +225,71 @@ def check_audio_lufs_within(pc, ctx, step_key, step_yaml, output_paths):
     return (ok, detail, measured)
 
 
+def measure_peak_dbfs(path):
+    """Maximum sample level (dBFS) across all channels of `path`, independently re-measured
+    with ffmpeg astats. Returns float (float('-inf') for digital silence) or None on error.
+
+    This is the measurement a peak post-condition is held to: it never consults the value the
+    component recorded about itself (that is json_fields_within's job). Sample-domain, not
+    inter-sample: it is the quantity the cdp_transform liveness floor compares against, so the
+    independent authority and the component's own record measure the same thing."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-i", path,
+             "-af", "astats=metadata=1:reset=0", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=600,
+        )
+        vals = [float(v) for v in
+                re.findall(r"Peak level dB:\s*(-?[0-9.]+|-?inf)\s*", proc.stderr or "")]
+        return max(vals) if vals else None
+    except Exception:
+        return None
+
+
+def check_audio_peak_above(pc, ctx, step_key, step_yaml, output_paths):
+    """Independent re-measurement that an audio output's peak level is ABOVE a floor (dBFS).
+
+    Probes the output FILE with ffmpeg astats and asserts the measured maximum sample level is
+    strictly greater than `threshold`. The point of the check is that it re-measures the file
+    rather than trusting the value the component wrote about itself -- the difference between
+    an authority that witnessed the render and one that took the renderer's word for it.
+
+    Param (step.yaml `verify.post_conditions[]`):
+      output      output name to probe (default primary_output)
+      threshold   the floor in dBFS; the measured peak must be STRICTLY greater (required)
+
+    `threshold` is a literal in the contract, NOT resolved from a component parameter: a peak
+    floor the contract re-declares rather than borrows cannot be loosened by changing a knob.
+
+    Fails closed: a missing output, an unmeasurable peak, or a missing `threshold` all FAIL --
+    a peak post-condition that cannot be evaluated must not pass vacuously."""
+    out_name = pc.get("output", "primary_output")
+    threshold = pc.get("threshold")
+    measured = {"output": out_name, "threshold_dbfs": threshold}
+    if threshold is None:
+        return (False, "audio_peak_above needs a `threshold` (dBFS) - a floor-less peak check asserts nothing",
+                measured)
+    threshold = float(threshold)
+    if threshold != threshold:  # NaN
+        return (False, "threshold is not a number", measured)
+    path = output_paths.get(out_name)
+    if not path or not os.path.exists(path):
+        return (False, "output '%s' missing" % out_name, measured)
+    val = measure_peak_dbfs(path)
+    measured["measured_peak_dbfs"] = val
+    if val is None:
+        return (False, "could not measure peak of output", measured)
+    ok = val > threshold  # -inf (silence) and NaN both fail
+    detail = "measured peak %s dBFS vs floor %s dBFS - %s" % (
+        "%.3f" % val, "%.1f" % threshold,
+        "above the floor" if ok else "AT OR BELOW the floor",
+    )
+    return (ok, detail, measured)
+
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Metamorphic post-conditions (reusable across creative/probabilistic operators).
 #
@@ -285,11 +350,38 @@ def measure_mean_volume_db(path):
         return None
 
 
+def resolve_input_path(ctx, step_key, which="in"):
+    """Resolve the path of a step's input as recorded at stage time.
+
+    The engine records per-step input provenance under `steps.<id>.inputs` when a step
+    declares a second input (`in2:`, issue #10):
+
+        steps.<id>.inputs = {"in": {"path": ...}, "in2": {"path": ..., "sha256": ...}}
+
+    `which` selects the input — "in" is the primary (the step's chain input), "in2" the
+    second. Falls back to the chain-level ctx['input_file'] for the primary input, which
+    is exactly what single-input steps always resolved to, so nothing changes for them.
+    This is the record-resolution half of two-input support: a two-input post-condition
+    names WHICH input's fact it measured, and the recorded provenance is what makes that
+    name resolvable. The post-condition classes that consume `which` live in the layer
+    that owns POST_CHECKS; here we only guarantee the record resolves."""
+    step = (ctx.get("steps") or {}).get(step_key) or {}
+    inputs = step.get("inputs")
+    if isinstance(inputs, dict):
+        entry = inputs.get(which)
+        if isinstance(entry, dict) and entry.get("path"):
+            return entry["path"]
+    if which == "in":
+        return ctx.get("input_file")
+    return None
+
+
 def _resolve_source(ctx, step_key, output_paths):
     """The operator's input audio, resolved most-authoritative first:
       1) a `source_input` recorded in any output's metadata,
       2) a `source_input` inside a JSON sidecar output the component wrote,
-      3) the chain input at verify time (ctx['input_file']).
+      3) the step's recorded primary-input provenance (steps.<id>.inputs.in.path),
+      4) the chain input at verify time (ctx['input_file']).
     Preferring the component's recorded source over ctx['input_file'] keeps the check
     correct even when re-run post-hoc (the engine advances input_file to the primary
     output only AFTER verification, so a finalized context would otherwise mislead)."""
@@ -309,7 +401,7 @@ def _resolve_source(ctx, step_key, output_paths):
                         return j["source_input"]
                 except Exception:
                     pass
-    return ctx.get("input_file")
+    return resolve_input_path(ctx, step_key, "in") or ctx.get("input_file")
 
 
 def _auto_file_outputs(ctx, step_key, exclude):
@@ -1039,6 +1131,7 @@ POST_CHECKS = {
     "audio_format_matches": check_audio_format_matches,
     "content_hash_matches": check_content_hash_matches,
     "audio_lufs_within": check_audio_lufs_within,
+    "audio_peak_above": check_audio_peak_above,
     "audio_duration_matches": check_audio_duration_matches,
     "stems_recombine": check_stems_recombine,
     "acoustic_roundtrip": check_acoustic_roundtrip,

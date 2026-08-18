@@ -112,6 +112,21 @@ get_input_file() {
     get_context_value "input_file"
 }
 
+# Second-input channel for two-input steps (issue #10): the engine stages the step's
+# declared `in2:` file BEFORE sourcing run.sh and exports its resolved path as
+# WORKCHAIN_INPUT_2 — the ONE documented channel a two-input component reads. The
+# recorded provenance (path + sha256, written under steps.<id>.inputs) is the fallback
+# for paths that source run.sh outside the engine. Components that consume a second
+# input read this; single-input components never touch it and are byte-identical.
+get_second_input_file() {
+    if [[ -n "${WORKCHAIN_INPUT_2:-}" ]]; then
+        echo "$WORKCHAIN_INPUT_2"
+        return 0
+    fi
+    get_context_value "steps.${CURRENT_STEP:-}.inputs.in2.path"
+    return 0
+}
+
 get_output_dir() {
     get_context_value "output_dir"
 }

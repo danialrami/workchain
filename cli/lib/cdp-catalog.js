@@ -108,12 +108,25 @@ export async function resolveCdpLibrary({ cdpWasmDir = null, loadNormal } = {}) 
  * count (1, or null for multiOut effects whose output count is only knowable at
  * runtime — e.g. housekeep.split emits one file per input channel), and each
  * parameter's min/max/default.
+ *
+ * stereoUnsafe is DERIVED, not an upstream field: the installed cdp-wasm catalog
+ * (^0.6.0, the version this repo runs) carries no field of that name — the key union
+ * across all 232 EFFECTS entries has no stereo key. It is computed as
+ * `setsChannels === true || input === 'stereo'`, from two fields the installed
+ * index.d.ts declares: setsChannels = "Output channel count is set by the effect
+ * (e.g. multichannel reverb), not the source"; input: 'stereo' = "Fixed input layout
+ * (spatialisation): source is conformed before processing". Both classes were
+ * verified against the installed package to raise the channel count from a mono
+ * source (reverb.reverb 1→2ch, mchanpan.spread 1→4ch, phase.stereo 1→2ch) while
+ * unflagged effects preserve the source's count exactly. mono:true alone does NOT
+ * flag an effect — mono-only programs run per channel and preserve channel count.
  */
 export function formatEffects(effects) {
   return effects.map((e) => ({
     id: e.id,
     group: String(e.id).split('.')[0] || null,
     outputs: e.multiOut ? null : 1,
+    stereoUnsafe: !!(e.setsChannels || e.input === 'stereo'),
     params: (e.params || []).map((p) => ({
       name: p.name,
       min: typeof p.min === 'number' ? p.min : null,
@@ -163,10 +176,13 @@ export function formatCatalogHuman(catalog) {
   lines.push('');
   for (const e of catalog.effects) {
     const outputs = e.outputs === null ? 'multi' : String(e.outputs);
+    const unsafe = e.stereoUnsafe ? 'stereoUnsafe' : '';
     const params = e.params.length
       ? e.params.map(paramText).join(', ')
       : '(no parameters)';
-    lines.push(`${e.id.padEnd(30)} group=${String(e.group).padEnd(14)} outputs=${outputs.padEnd(5)} ${params}`.trimEnd());
+    lines.push(
+      `${e.id.padEnd(30)} group=${String(e.group).padEnd(14)} outputs=${outputs.padEnd(5)} ${unsafe.padEnd(12)} ${params}`.trimEnd()
+    );
   }
   lines.push('');
   return lines.join('\n');
