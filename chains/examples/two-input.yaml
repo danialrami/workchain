@@ -1,0 +1,14 @@
+name: "Two-input mix example"
+description: "Demo of the in2: second-input channel (issue #10): the mix step consumes the chain input AND a second input declared with in2:. Run from the repo root so the relative in2 path resolves: ./engine/workchain-engine.sh -c chains/examples/two-input.yaml <any.wav> -o out — or workchain run two-input <any.wav>."
+version: "1.0"
+steps:
+  - name: mix
+    # The second input (`in2:`, issue #10): a path or glob resolving to exactly one
+    # audio file. Resolved against the engine's CWD — the same rule as every other
+    # engine path (-c, the input, -o). The committed fixture is regenerable with
+    # `ffmpeg -f lavfi -i sine=frequency=880:duration=2 -ac 1 -c:a pcm_s16le
+    # chains/examples/fixtures/in_b.wav` — see chains/examples/fixtures/README.md.
+    in2: "chains/examples/fixtures/in_b.wav"
+    params:
+      duration_mode: longest
+      normalize: true

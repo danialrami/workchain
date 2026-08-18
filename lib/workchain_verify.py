@@ -285,11 +285,38 @@ def measure_mean_volume_db(path):
         return None
 
 
+def resolve_input_path(ctx, step_key, which="in"):
+    """Resolve the path of a step's input as recorded at stage time.
+
+    The engine records per-step input provenance under `steps.<id>.inputs` when a step
+    declares a second input (`in2:`, issue #10):
+
+        steps.<id>.inputs = {"in": {"path": ...}, "in2": {"path": ..., "sha256": ...}}
+
+    `which` selects the input — "in" is the primary (the step's chain input), "in2" the
+    second. Falls back to the chain-level ctx['input_file'] for the primary input, which
+    is exactly what single-input steps always resolved to, so nothing changes for them.
+    This is the record-resolution half of two-input support: a two-input post-condition
+    names WHICH input's fact it measured, and the recorded provenance is what makes that
+    name resolvable. The post-condition classes that consume `which` live in the layer
+    that owns POST_CHECKS; here we only guarantee the record resolves."""
+    step = (ctx.get("steps") or {}).get(step_key) or {}
+    inputs = step.get("inputs")
+    if isinstance(inputs, dict):
+        entry = inputs.get(which)
+        if isinstance(entry, dict) and entry.get("path"):
+            return entry["path"]
+    if which == "in":
+        return ctx.get("input_file")
+    return None
+
+
 def _resolve_source(ctx, step_key, output_paths):
     """The operator's input audio, resolved most-authoritative first:
       1) a `source_input` recorded in any output's metadata,
       2) a `source_input` inside a JSON sidecar output the component wrote,
-      3) the chain input at verify time (ctx['input_file']).
+      3) the step's recorded primary-input provenance (steps.<id>.inputs.in.path),
+      4) the chain input at verify time (ctx['input_file']).
     Preferring the component's recorded source over ctx['input_file'] keeps the check
     correct even when re-run post-hoc (the engine advances input_file to the primary
     output only AFTER verification, so a finalized context would otherwise mislead)."""
@@ -309,7 +336,7 @@ def _resolve_source(ctx, step_key, output_paths):
                         return j["source_input"]
                 except Exception:
                     pass
-    return ctx.get("input_file")
+    return resolve_input_path(ctx, step_key, "in") or ctx.get("input_file")
 
 
 def _auto_file_outputs(ctx, step_key, exclude):
