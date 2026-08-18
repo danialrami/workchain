@@ -21,7 +21,10 @@ component's step.yaml under `verify:`; this file only implements the reusable
 assertion primitives so authors (human or agent) rarely hand-write verification code.
 
 CLI:
-  workchain_verify.py <workchain_root> <component> <context_file> [--json]
+  workchain_verify.py <workchain_root> <component> <context_file> [step_id] [--json]
+  step_id — the effective step id the record lives under in context.json `steps`
+            (defaults to the component name; the engine passes it so per-step
+            records are checked under the same key they were written under)
 
 Exit codes:
   0  verified  (contract passed)  ·  also 0 for: no contract declared (tier
@@ -151,8 +154,11 @@ def measure_integrated_lufs(path, probe_target=-14.0):
 # (+ normalization's lufs_target alias) > step.yaml schema default.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def resolve_target(ctx, comp, step_yaml, param):
-    step = (ctx.get("steps") or {}).get(comp) or {}
+def resolve_target(ctx, step_key, step_yaml, param):
+    """Resolve what numeric value the step aimed for. `step_key` is the step's
+    effective id — the key the engine wrote the record under (component name when the
+    chain declares no `id:`)."""
+    step = (ctx.get("steps") or {}).get(step_key) or {}
     outputs = step.get("outputs") or {}
     for _name, meta in outputs.items():
         if isinstance(meta, dict) and param in meta:
@@ -176,7 +182,7 @@ def resolve_target(ctx, comp, step_yaml, param):
             return float(g[param]), "globals.%s" % param
         except Exception:
             pass
-    if comp == "normalization" and param == "target_lufs" and "lufs_target" in g:
+    if step_key == "normalization" and param == "target_lufs" and "lufs_target" in g:
         try:
             return float(g["lufs_target"]), "globals.lufs_target(alias)"
         except Exception:
@@ -194,12 +200,12 @@ def resolve_target(ctx, comp, step_yaml, param):
 # Post-condition checks (component-level, numeric/relational).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_audio_lufs_within(pc, ctx, comp, step_yaml, output_paths):
+def check_audio_lufs_within(pc, ctx, step_key, step_yaml, output_paths):
     out_name = pc.get("output", "primary_output")
     path = output_paths.get(out_name)
     tol = float(pc.get("tolerance", 1.0))
     param = pc.get("target_param", "target_lufs")
-    target, tsrc = resolve_target(ctx, comp, step_yaml, param)
+    target, tsrc = resolve_target(ctx, step_key, step_yaml, param)
     measured = {"target": target, "target_source": tsrc, "tolerance": tol}
     if not path or not os.path.exists(path):
         return (False, "output '%s' missing" % out_name, measured)
@@ -217,6 +223,71 @@ def check_audio_lufs_within(pc, ctx, comp, step_yaml, output_paths):
         target, tol, measured["delta_lu"],
     )
     return (ok, detail, measured)
+
+
+def measure_peak_dbfs(path):
+    """Maximum sample level (dBFS) across all channels of `path`, independently re-measured
+    with ffmpeg astats. Returns float (float('-inf') for digital silence) or None on error.
+
+    This is the measurement a peak post-condition is held to: it never consults the value the
+    component recorded about itself (that is json_fields_within's job). Sample-domain, not
+    inter-sample: it is the quantity the cdp_transform liveness floor compares against, so the
+    independent authority and the component's own record measure the same thing."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-i", path,
+             "-af", "astats=metadata=1:reset=0", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=600,
+        )
+        vals = [float(v) for v in
+                re.findall(r"Peak level dB:\s*(-?[0-9.]+|-?inf)\s*", proc.stderr or "")]
+        return max(vals) if vals else None
+    except Exception:
+        return None
+
+
+def check_audio_peak_above(pc, ctx, step_key, step_yaml, output_paths):
+    """Independent re-measurement that an audio output's peak level is ABOVE a floor (dBFS).
+
+    Probes the output FILE with ffmpeg astats and asserts the measured maximum sample level is
+    strictly greater than `threshold`. The point of the check is that it re-measures the file
+    rather than trusting the value the component wrote about itself -- the difference between
+    an authority that witnessed the render and one that took the renderer's word for it.
+
+    Param (step.yaml `verify.post_conditions[]`):
+      output      output name to probe (default primary_output)
+      threshold   the floor in dBFS; the measured peak must be STRICTLY greater (required)
+
+    `threshold` is a literal in the contract, NOT resolved from a component parameter: a peak
+    floor the contract re-declares rather than borrows cannot be loosened by changing a knob.
+
+    Fails closed: a missing output, an unmeasurable peak, or a missing `threshold` all FAIL --
+    a peak post-condition that cannot be evaluated must not pass vacuously."""
+    out_name = pc.get("output", "primary_output")
+    threshold = pc.get("threshold")
+    measured = {"output": out_name, "threshold_dbfs": threshold}
+    if threshold is None:
+        return (False, "audio_peak_above needs a `threshold` (dBFS) - a floor-less peak check asserts nothing",
+                measured)
+    threshold = float(threshold)
+    if threshold != threshold:  # NaN
+        return (False, "threshold is not a number", measured)
+    path = output_paths.get(out_name)
+    if not path or not os.path.exists(path):
+        return (False, "output '%s' missing" % out_name, measured)
+    val = measure_peak_dbfs(path)
+    measured["measured_peak_dbfs"] = val
+    if val is None:
+        return (False, "could not measure peak of output", measured)
+    ok = val > threshold  # -inf (silence) and NaN both fail
+    detail = "measured peak %s dBFS vs floor %s dBFS - %s" % (
+        "%.3f" % val, "%.1f" % threshold,
+        "above the floor" if ok else "AT OR BELOW the floor",
+    )
+    return (ok, detail, measured)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,15 +350,42 @@ def measure_mean_volume_db(path):
         return None
 
 
-def _resolve_source(ctx, comp, output_paths):
+def resolve_input_path(ctx, step_key, which="in"):
+    """Resolve the path of a step's input as recorded at stage time.
+
+    The engine records per-step input provenance under `steps.<id>.inputs` when a step
+    declares a second input (`in2:`, issue #10):
+
+        steps.<id>.inputs = {"in": {"path": ...}, "in2": {"path": ..., "sha256": ...}}
+
+    `which` selects the input — "in" is the primary (the step's chain input), "in2" the
+    second. Falls back to the chain-level ctx['input_file'] for the primary input, which
+    is exactly what single-input steps always resolved to, so nothing changes for them.
+    This is the record-resolution half of two-input support: a two-input post-condition
+    names WHICH input's fact it measured, and the recorded provenance is what makes that
+    name resolvable. The post-condition classes that consume `which` live in the layer
+    that owns POST_CHECKS; here we only guarantee the record resolves."""
+    step = (ctx.get("steps") or {}).get(step_key) or {}
+    inputs = step.get("inputs")
+    if isinstance(inputs, dict):
+        entry = inputs.get(which)
+        if isinstance(entry, dict) and entry.get("path"):
+            return entry["path"]
+    if which == "in":
+        return ctx.get("input_file")
+    return None
+
+
+def _resolve_source(ctx, step_key, output_paths):
     """The operator's input audio, resolved most-authoritative first:
       1) a `source_input` recorded in any output's metadata,
       2) a `source_input` inside a JSON sidecar output the component wrote,
-      3) the chain input at verify time (ctx['input_file']).
+      3) the step's recorded primary-input provenance (steps.<id>.inputs.in.path),
+      4) the chain input at verify time (ctx['input_file']).
     Preferring the component's recorded source over ctx['input_file'] keeps the check
     correct even when re-run post-hoc (the engine advances input_file to the primary
     output only AFTER verification, so a finalized context would otherwise mislead)."""
-    step = (ctx.get("steps") or {}).get(comp) or {}
+    step = (ctx.get("steps") or {}).get(step_key) or {}
     outs = step.get("outputs") or {}
     for meta in outs.values():
         if isinstance(meta, dict) and meta.get("source_input"):
@@ -303,20 +401,20 @@ def _resolve_source(ctx, comp, output_paths):
                         return j["source_input"]
                 except Exception:
                     pass
-    return ctx.get("input_file")
+    return resolve_input_path(ctx, step_key, "in") or ctx.get("input_file")
 
 
-def _auto_file_outputs(ctx, comp, exclude):
-    """All registered file-type outputs for `comp`, minus `exclude` (default the
+def _auto_file_outputs(ctx, step_key, exclude):
+    """All registered file-type outputs for the step keyed `step_key`, minus `exclude` (default the
     `primary_output` pointer, which duplicates one stem's path). Lets a contract say
     `stems: auto` and stay correct for ANY stem count (2 / 4 / 6) without re-listing."""
-    outs = ((ctx.get("steps") or {}).get(comp) or {}).get("outputs") or {}
+    outs = ((ctx.get("steps") or {}).get(step_key) or {}).get("outputs") or {}
     ex = set(exclude if exclude is not None else ["primary_output"])
     return sorted(n for n, m in outs.items()
                   if isinstance(m, dict) and m.get("type") == "file" and n not in ex)
 
 
-def _resolve_stem_list(pc, ctx, comp, key):
+def _resolve_stem_list(pc, ctx, step_key, key):
     """Resolve a post-condition's target output names: an explicit list, a single
     name, or `auto` (→ all file outputs except the primary_output pointer)."""
     v = pc.get(key)
@@ -324,15 +422,15 @@ def _resolve_stem_list(pc, ctx, comp, key):
         return v
     if isinstance(v, str) and v != "auto":
         return [v]
-    return _auto_file_outputs(ctx, comp, pc.get("exclude"))
+    return _auto_file_outputs(ctx, step_key, pc.get("exclude"))
 
 
-def check_audio_duration_matches(pc, ctx, comp, step_yaml, output_paths):
+def check_audio_duration_matches(pc, ctx, step_key, step_yaml, output_paths):
     """Metamorphic invariant: each listed audio output preserves the source duration
     within tolerance. Shared by separation / denoise / restoration / protection."""
     tol = float(pc.get("tolerance_s", pc.get("tolerance", 0.1)))
-    names = _resolve_stem_list(pc, ctx, comp, "outputs")
-    src = _resolve_source(ctx, comp, output_paths)
+    names = _resolve_stem_list(pc, ctx, step_key, "outputs")
+    src = _resolve_source(ctx, step_key, output_paths)
     measured = {"tolerance_s": tol, "source": src}
     src_dur = measure_duration(src)
     measured["source_duration"] = src_dur
@@ -366,7 +464,7 @@ def _mix_stems_to_wav(stem_paths, sr, ch, out_wav):
     subprocess.run(cmd, capture_output=True, text=True, timeout=600)
 
 
-def check_stems_recombine(pc, ctx, comp, step_yaml, output_paths):
+def check_stems_recombine(pc, ctx, step_key, step_yaml, output_paths):
     """Metamorphic relation for source separation: the stems must DECOMPOSE the input,
     i.e. their sum reconstructs the source. We measure the residual
     (source − Σ stems) and require it to sit at least |max_residual_db| below the
@@ -375,9 +473,9 @@ def check_stems_recombine(pc, ctx, comp, step_yaml, output_paths):
     perceptually "correct" split (there is no single right answer)."""
     import tempfile
     import shutil as _sh
-    stems = _resolve_stem_list(pc, ctx, comp, "stems")
+    stems = _resolve_stem_list(pc, ctx, step_key, "stems")
     max_res = float(pc.get("max_residual_db", -10.0))
-    src = _resolve_source(ctx, comp, output_paths)
+    src = _resolve_source(ctx, step_key, output_paths)
     measured = {"stems": stems, "max_residual_db": max_res, "source": src}
     paths = [output_paths.get(s) for s in stems]
     if not src or not os.path.exists(src):
@@ -432,11 +530,11 @@ def check_stems_recombine(pc, ctx, comp, step_yaml, output_paths):
 # the @lufs-audio/audioqr decoder (resolved via WORKCHAIN_AUDIOQR_BIN or `audioqr` on PATH).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def resolve_target_str(ctx, comp, step_yaml, param):
+def resolve_target_str(ctx, step_key, step_yaml, param):
     """The STRING target the step ran with: step.params > globals > schema default.
     Independent of the component's sidecar — we re-derive intent, we don't trust output.
     (String-valued sibling of resolve_target, which coerces to float for numeric checks.)"""
-    step = (ctx.get("steps") or {}).get(comp) or {}
+    step = (ctx.get("steps") or {}).get(step_key) or {}
     params = step.get("params") or {}
     if param in params and params[param] not in (None, ""):
         return str(params[param]), "step.params.%s" % param
@@ -453,13 +551,13 @@ def _resolve_audioqr():
     return os.environ.get("WORKCHAIN_AUDIOQR_BIN") or shutil.which("audioqr")
 
 
-def check_acoustic_roundtrip(pc, ctx, comp, step_yaml, output_paths):
+def check_acoustic_roundtrip(pc, ctx, step_key, step_yaml, output_paths):
     """Metamorphic/relational: decode(output) must contain the source text. There is no
     single 'right waveform', so we assert the recovery relation, not exact samples."""
     out_name = pc.get("output", "primary_output")
     path = output_paths.get(out_name)
     param = pc.get("target_param", "text")
-    target, tsrc = resolve_target_str(ctx, comp, step_yaml, param)
+    target, tsrc = resolve_target_str(ctx, step_key, step_yaml, param)
     measured = {"output": out_name, "target": target, "target_source": tsrc}
     if not path or not os.path.exists(path):
         return (False, "output '%s' missing" % out_name, measured)
@@ -504,7 +602,7 @@ def _resolve_lufs_seed():
     return os.environ.get("WORKCHAIN_LUFS_SEED_BIN") or shutil.which("lufs-seed")
 
 
-def check_seed_record_verifies(pc, ctx, comp, step_yaml, output_paths):
+def check_seed_record_verifies(pc, ctx, step_key, step_yaml, output_paths):
     """The seed record must independently verify, and reach the required tier."""
     out_name = pc.get("output", "primary_output")
     path = output_paths.get(out_name)
@@ -524,7 +622,7 @@ def check_seed_record_verifies(pc, ctx, comp, step_yaml, output_paths):
     # _resolve_source prefers over ctx['input_file'] — important because the engine
     # advances input_file after verification, so a post-hoc re-run must still check
     # the original capture rather than whatever the chain moved on to.
-    src = _resolve_source(ctx, comp, output_paths)
+    src = _resolve_source(ctx, step_key, output_paths)
     measured["source"] = src
 
     cmd = [binpath, "verify", path, "--json"]
@@ -563,7 +661,7 @@ def check_seed_record_verifies(pc, ctx, comp, step_yaml, output_paths):
             % (data.get("seed_id"), n, n, tier), measured)
 
 
-def check_embedding_wellformed(pc, ctx, comp, step_yaml, output_paths):
+def check_embedding_wellformed(pc, ctx, step_key, step_yaml, output_paths):
     """The embedding sidecar contains a REAL vector, not merely the right keys.
 
     The structural asserts prove `vector` and `l2norm` are present. This proves the vector is
@@ -796,7 +894,7 @@ def _eval_constraint(rec, expr):
             field, val)
 
 
-def check_json_fields_within(pc, ctx, comp, step_yaml, output_paths):
+def check_json_fields_within(pc, ctx, step_key, step_yaml, output_paths):
     """Assert declared VALUE constraints hold in a JSON output. See the block comment above.
 
     Params (step.yaml `verify.post_conditions[]`):
@@ -866,7 +964,7 @@ def measure_bit_depth(path):
         return None
 
 
-def check_audio_format_matches(pc, ctx, comp, step_yaml, output_paths):
+def check_audio_format_matches(pc, ctx, step_key, step_yaml, output_paths):
     """Independently re-probe an audio output and confirm it conforms to the format the
     step ASKED for — sample rate, channel count, bit depth.
 
@@ -903,7 +1001,7 @@ def check_audio_format_matches(pc, ctx, comp, step_yaml, output_paths):
     for dim, param in param_of.items():
         if not param:
             continue
-        val, _src = resolve_target(ctx, comp, step_yaml, param)
+        val, _src = resolve_target(ctx, step_key, step_yaml, param)
         if val is None or str(val).strip() == "":
             continue
         try:
@@ -955,7 +1053,7 @@ def check_audio_format_matches(pc, ctx, comp, step_yaml, output_paths):
     return (ok, detail, measured)
 
 
-def check_content_hash_matches(pc, ctx, comp, step_yaml, output_paths):
+def check_content_hash_matches(pc, ctx, step_key, step_yaml, output_paths):
     """Re-compute the content hash of the source and confirm it equals the recorded digest.
 
     Provenance is the one claim in this system that can be checked perfectly, because a
@@ -995,7 +1093,7 @@ def check_content_hash_matches(pc, ctx, comp, step_yaml, output_paths):
     if not recorded or not isinstance(recorded, str):
         return (False, "record has no usable '%s' field" % digest_field, measured)
 
-    src = _resolve_source(ctx, comp, output_paths)
+    src = _resolve_source(ctx, step_key, output_paths)
     measured["source"] = src
     if not src or not os.path.exists(src):
         return (False, "could not resolve the source file to re-hash (%s)" % src, measured)
@@ -1033,6 +1131,7 @@ POST_CHECKS = {
     "audio_format_matches": check_audio_format_matches,
     "content_hash_matches": check_content_hash_matches,
     "audio_lufs_within": check_audio_lufs_within,
+    "audio_peak_above": check_audio_peak_above,
     "audio_duration_matches": check_audio_duration_matches,
     "stems_recombine": check_stems_recombine,
     "acoustic_roundtrip": check_acoustic_roundtrip,
@@ -1045,7 +1144,13 @@ POST_CHECKS = {
 # Orchestration
 # ─────────────────────────────────────────────────────────────────────────────
 
-def verify(root, comp, context_file):
+def verify(root, comp, context_file, step_id=None):
+    # comp = the COMPONENT name — where step.yaml lives. step_key = the step's
+    # effective id — the key the engine WROTE the record under in context.json
+    # `steps`. They differ for an explicit-`id:` step, and keying on comp here would
+    # read (and re-write) the wrong record — resurrecting the overwrite per-step
+    # identity exists to prevent.
+    step_key = step_id or comp
     report = {
         "component": comp,
         "tier": "unverified",
@@ -1063,20 +1168,20 @@ def verify(root, comp, context_file):
     step_yaml = workchain_yaml.load_file(step_yaml_path) or {}
     contract = step_yaml.get("verify") or {}
 
-    step = (ctx.get("steps") or {}).get(comp) or {}
+    step = (ctx.get("steps") or {}).get(step_key) or {}
 
-    # Honest skip: a component that recorded "skipped" wasn't asked to produce a
+    # Honest skip: a step that recorded status=skipped wasn't asked to produce a
     # contract-bearing output (e.g. silent input). Respect it; don't fail.
     if step.get("status") == "skipped":
         report["tier"] = "skipped"
         report["note"] = "component reported status=skipped; verification not applicable"
-        _persist(ctx, context_file, comp, report)
+        _persist(ctx, context_file, step_key, report)
         return report, True
 
     # No contract declared → unverified tier (non-blocking). Honest about the gap.
     if not contract:
         report["note"] = "no verify contract declared for this component"
-        _persist(ctx, context_file, comp, report)
+        _persist(ctx, context_file, step_key, report)
         return report, True
 
     outputs_meta = step.get("outputs") or {}
@@ -1106,13 +1211,13 @@ def verify(root, comp, context_file):
         if fn is None:
             _record(report, cid, False, "unknown post-condition check '%s'" % kind)
             continue
-        ok, detail, measured = fn(pc, ctx, comp, step_yaml, output_paths)
+        ok, detail, measured = fn(pc, ctx, step_key, step_yaml, output_paths)
         report["measured"][cid] = measured
         _record(report, cid, ok, detail)
 
     report["verified"] = len(report["failures"]) == 0
     report["tier"] = "verified" if report["verified"] else "unverified"
-    _persist(ctx, context_file, comp, report)
+    _persist(ctx, context_file, step_key, report)
     return report, report["verified"]
 
 
@@ -1122,12 +1227,12 @@ def _record(report, name, ok, detail):
         report["failures"].append({"name": name, "detail": detail})
 
 
-def _persist(ctx, context_file, comp, report):
-    ctx.setdefault("steps", {}).setdefault(comp, {})
-    ctx["steps"][comp]["verification"] = report
+def _persist(ctx, context_file, step_key, report):
+    ctx.setdefault("steps", {}).setdefault(step_key, {})
+    ctx["steps"][step_key]["verification"] = report
     if not report["verified"] and report["tier"] != "skipped":
-        ctx["steps"][comp]["status"] = "failed"
-        ctx["steps"][comp]["verification_failed"] = True
+        ctx["steps"][step_key]["status"] = "failed"
+        ctx["steps"][step_key]["verification_failed"] = True
     with open(context_file, "w") as f:
         json.dump(ctx, f, indent=2)
 
@@ -1139,8 +1244,11 @@ def main(argv):
         sys.stderr.write("Usage: workchain_verify.py <workchain_root> <component> <context_file> [--json]\n")
         return 2
     root, comp, context_file = argv[0], argv[1], argv[2]
+    # Optional 4th positional: the step's effective id (the engine passes it; the CLI
+    # run-component path does not, so a lone component keys checks by its name).
+    step_id = argv[3] if len(argv) > 3 else None
     try:
-        report, ok = verify(root, comp, context_file)
+        report, ok = verify(root, comp, context_file, step_id)
     except Exception as e:
         sys.stderr.write("verify error (%s): %s\n" % (comp, e))
         return 2

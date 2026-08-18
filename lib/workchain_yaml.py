@@ -21,7 +21,7 @@ CLI:
   workchain_yaml.py parse <file>
   workchain_yaml.py component-schema <root> <component>
   workchain_yaml.py resolve-steps <root> <chain_file>
-  workchain_yaml.py engine-plan <root> <chain_file>      # base64 STEP_CONFIG lines for the bash engine
+  workchain_yaml.py engine-plan <root> <chain_file>      # base64 STEP_CONFIG lines for the bash engine (component name, step id, config, params)
   workchain_yaml.py resolve-params <root> <component> <params_json> [globals_json]
   workchain_yaml.py validate <root> <chain_file> [--strict] [--require-commands]
       --strict            also check params against the component schema (types,
@@ -328,6 +328,11 @@ def component_schema(root, name):
         "type": data.get("type"),
         "input_types": data.get("input_types") or [],
         "output_type": data.get("output_type"),
+        # Two-input channel (issue #10): a component that can consume a second input
+        # (via the WORKCHAIN_INPUT_2 channel) declares this explicitly. Validation
+        # refuses a chain step that declares `in2:` against a component that does
+        # NOT declare it — fail closed rather than silently dropping the second input.
+        "accepts_second_input": data.get("accepts_second_input", False),
         "outputs": data.get("outputs") or {},
         "params": params,
         "requirements": data.get("requirements") or {},
@@ -407,6 +412,21 @@ def _check_param(comp, key, value, pdef):
 # Chain validation + resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
+def effective_step_id(step, name):
+    """The step's record key in context.json's `steps` map: the explicit `id:` when
+    present and non-empty, else the step's `name` (the component name).
+
+    `name` stays the component to EXECUTE and to resolve files for; `id` is purely the
+    record key. Uniqueness across a chain is enforced by validate_chain (two steps
+    resolving to the same id would overwrite each other's record), so this helper only
+    resolves the value. For chains written before `id:` existed — and for any chain
+    whose id equals its name — the key is byte-identical to today."""
+    raw = step.get("id") if isinstance(step, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return name
+
+
 def validate_chain(root, chain_file, strict=False, require_commands=False):
     """Validate a chain.
 
@@ -462,11 +482,42 @@ def validate_chain(root, chain_file, strict=False, require_commands=False):
 
     g = data.get("globals") or {}
     resolved_steps = []
+    seen_ids = {}  # effective id -> 1-based step number of its first occurrence
     for idx, st in enumerate(steps):
         if not isinstance(st, dict) or "name" not in st:
             errors.append("Step #%d is missing a name" % (idx + 1))
             continue
         name = st["name"]
+        raw_id = st.get("id")
+        if raw_id is not None and not (isinstance(raw_id, str) and raw_id.strip()):
+            errors.append(
+                "Step #%d ('%s'): id must be a non-empty string, got %r — omit the "
+                "key to default to the step name" % (idx + 1, name, raw_id))
+            continue
+        # Second input (issue #10): `in2:` names a path/glob to a second audio file the
+        # engine stages for this step. It is a static, single-line string (no block
+        # scalars / anchors — same parser subset as everything else). Whether the file
+        # actually exists is a RUNTIME fact of the machine running the chain, not an
+        # authoring error, so validation does not touch the filesystem here — the engine
+        # fails closed at stage time if the path/glob resolves to nothing.
+        raw_in2 = st.get("in2")
+        if raw_in2 is not None and not (isinstance(raw_in2, str) and raw_in2.strip()):
+            errors.append(
+                "Step #%d ('%s'): in2 must be a non-empty string (a path or glob to a "
+                "second audio file), got %r" % (idx + 1, name, raw_in2))
+        if isinstance(raw_in2, str) and raw_in2.strip():
+            try:
+                schema2 = component_schema(root, name)
+                if not schema2.get("accepts_second_input"):
+                    errors.append(
+                        "Step #%d ('%s'): declares in2: but component '%s' does not declare "
+                        "accepts_second_input: true in its step.yaml — the second input "
+                        "would be silently dropped. Add the declaration to the component, "
+                        "or remove in2: from the step." % (idx + 1, name, name))
+            except Exception:
+                pass  # component-level errors are reported by the checks below
+        # The step's record key in context.json `steps`: explicit id, else the name.
+        sid = effective_step_id(st, name)
         cdir = os.path.join(root, "components", name)
         if not os.path.isdir(cdir):
             errors.append("Step '%s' not found in components/" % name)
@@ -474,6 +525,19 @@ def validate_chain(root, chain_file, strict=False, require_commands=False):
         if not os.path.exists(os.path.join(cdir, "step.yaml")):
             errors.append("Step '%s' missing step.yaml" % name)
             continue
+        # The `steps` map in context.json is keyed on the effective id, so two steps
+        # resolving to the same id would silently OVERWRITE each other's verification
+        # record while the run reports success (issue #22) — the lying-success this
+        # engine exists to refuse. Fail closed. Disabled steps count too: the ambiguity
+        # is in the file, not in whether the step ran.
+        if sid in seen_ids:
+            errors.append(
+                "Step #%d ('%s'): id '%s' duplicates step #%d — context.json keys "
+                "`steps` on the step id, so the second record would overwrite the "
+                "first's verification. Give one of them a distinct `id:`."
+                % (idx + 1, name, sid, seen_ids[sid]))
+        else:
+            seen_ids[sid] = idx + 1
         if not os.path.exists(os.path.join(cdir, "run.sh")):
             errors.append("Step '%s' missing run.sh" % name)
         try:
@@ -481,6 +545,10 @@ def validate_chain(root, chain_file, strict=False, require_commands=False):
         except Exception as e:
             errors.append("Step '%s': cannot load schema: %s" % (name, e))
             continue
+        # Carry the declared second input through resolution so engine-plan can stage it.
+        in2_val = None
+        if isinstance(raw_in2, str) and raw_in2.strip():
+            in2_val = raw_in2.strip()
         if strict:
             known = {p["name"]: p for p in schema["params"]}
             for k, v in (st.get("params") or {}).items():
@@ -497,7 +565,9 @@ def validate_chain(root, chain_file, strict=False, require_commands=False):
                         errors.append(msg)
                     else:
                         environment.append(msg)
-        resolved_steps.append({"name": name, "enabled": st.get("enabled", True), "params": resolved})
+        resolved_steps.append({"name": name, "id": sid,
+                              "enabled": st.get("enabled", True), "params": resolved,
+                              "in2": in2_val})
 
     return {
         "valid": len(errors) == 0,
@@ -517,14 +587,17 @@ def resolve_steps(root, chain_file):
     for st in (data.get("steps") or []):
         if not isinstance(st, dict) or "name" not in st:
             continue
+        sid = effective_step_id(st, st["name"])
+        raw_in2 = st.get("in2")
+        in2_val = raw_in2.strip() if isinstance(raw_in2, str) and raw_in2.strip() else None
         if st.get("enabled", True) is False:
-            out.append({"name": st["name"], "enabled": False, "params": {}})
+            out.append({"name": st["name"], "id": sid, "enabled": False, "params": {}, "in2": in2_val})
             continue
         try:
             resolved, _ = resolve_params(root, st["name"], st.get("params") or {}, g, include_defaults=False)
         except Exception:
             resolved = st.get("params") or {}
-        out.append({"name": st["name"], "enabled": True, "params": resolved})
+        out.append({"name": st["name"], "id": sid, "enabled": True, "params": resolved, "in2": in2_val})
     return out
 
 
@@ -557,7 +630,12 @@ def list_components(root):
 def list_chains(root):
     chains = []
     cdir = os.path.join(root, "chains")
-    for base, _dirs, files in os.walk(cdir):
+    for base, dirs, files in os.walk(cdir):
+        # chains/**/fixtures/ holds deliberately-INVALID repro chains (they exist to
+        # FAIL validation — e.g. the issue #22 duplicate-id probe). `validate all` and
+        # the chains listing must not treat them as registered chains, or every gate
+        # would go red on a file that is doing its job by being invalid.
+        dirs[:] = [d for d in dirs if d != "fixtures"]
         for fn in files:
             if not (fn.endswith(".yaml") or fn.endswith(".yml")):
                 continue
@@ -623,16 +701,24 @@ def main(argv):
             # (the single source of truth). The engine persists it verbatim into
             # context.json so the verifier sees the exact target the step ran with —
             # it never re-parses the STEP_CONFIG YAML itself (no second param parser).
+            # Line format: TAG\t<component name>\t<effective id>\t<b64 config>\t<b64
+            # params>\t<b64 in2>. `name` is the component to execute; `id` is the key
+            # its record lives under in context.json `steps` (defaults to the name). The
+            # engine keys __WC_STEP on `id`. The optional 6th field is the step's
+            # declared `in2:` second-input spec (path/glob, base64) — empty for chains
+            # without a second input, so existing consumers of the first five fields are
+            # unaffected.
             for st in resolve_steps(argv[1], argv[2]):
                 if not st["enabled"]:
-                    sys.stdout.write("SKIP\t%s\n" % st["name"])
+                    sys.stdout.write("SKIP\t%s\t%s\n" % (st["name"], st["id"]))
                     continue
                 cfg = build_step_config(st["params"])
                 b64 = base64.b64encode(cfg.encode("utf-8")).decode("ascii")
                 pj = base64.b64encode(
                     json.dumps(st["params"], sort_keys=True).encode("utf-8")
                 ).decode("ascii")
-                sys.stdout.write("STEP\t%s\t%s\t%s\n" % (st["name"], b64, pj))
+                i2 = base64.b64encode(st["in2"].encode("utf-8")).decode("ascii") if st.get("in2") else ""
+                sys.stdout.write("STEP\t%s\t%s\t%s\t%s\t%s\n" % (st["name"], st["id"], b64, pj, i2))
         elif cmd == "validate":
             flags = argv[3:]
             strict = "--strict" in flags

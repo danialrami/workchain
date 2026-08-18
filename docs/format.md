@@ -57,7 +57,9 @@ The Bash validator (`engine/chain-validator.sh`) checks the same three fields us
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `name` | string | yes | Must match the name of a subdirectory under `components/`. The validator checks that the directory exists and contains both `step.yaml` and `run.sh`. |
+| `name` | string | yes | Must match the name of a subdirectory under `components/`. The validator checks that the directory exists and contains both `step.yaml` and `run.sh`. **`name` is what gets executed** — the component resolved, its `run.sh` sourced, its `step.yaml` contract loaded. |
+| `id` | string | no | **The step's record identity.** Defaults to the step `name`. See [Step identity (`id`)](#step-identity-id). |
+| `in2` | string | no | Declares a **second audio input** for this step: a path or glob to a file on disk. See [Second input (`in2:`)](#second-input-in2). The component must declare `accepts_second_input: true` or validation refuses the step. |
 | `enabled` | boolean | no | Default `true`. Set to `false` to skip this step. The engine logs "Skipping disabled step" and moves on without executing or verifying it. |
 | `params` | mapping | no | Per-step parameter overrides. See [Parameter Precedence](#parameter-precedence). |
 
@@ -83,6 +85,143 @@ steps:
 
 ---
 
+## Step identity (`id`)
+
+Each step may declare an optional `id:`. The **effective id** is the `id` value when it
+is present and non-empty, otherwise the step's `name` (the component name). The effective
+id is the key the step's record lives under in `context.json`'s `steps` map — nothing
+else.
+
+`name` and `id` are deliberately two different things:
+
+| | `name` | `id` |
+|---|--------|------|
+| Resolves | the component: `components/<name>/` dir, `run.sh`, `step.yaml` contract | nothing — a pure record key |
+| Used by | execution, file resolution, preflight, contract loading | `context.json` `steps` keying, the `__WC_STEP` env, `steps.<id>.*` lookups |
+| Identical? | — | only when `id:` is absent (the default) |
+
+The engine keys `context.json`'s `steps` on the effective id, so every write and read
+for one step touches the same record:
+
+- `record_step_params` writes `steps.<id>.params` before the step runs;
+- `register_output` / `ctx_set_status` write `steps.<id>.outputs` / status while it runs;
+- `lib/workchain_preflight.py` writes `steps.<id>.preflight`;
+- `lib/workchain_verify.py` writes `steps.<id>.verification` afterwards.
+
+A chain may therefore run two steps of the same component and each keeps its own record
+under its own key — neither overwrites the other:
+
+```yaml
+steps:
+  - name: cdp_transform
+    id: trace
+    params:
+      effect: hilite.trace
+  - name: cdp_transform
+    id: blur
+    params:
+      effect: blur.blur
+```
+
+`context.json` then holds `steps.trace` and `steps.blur`, each with its own `params`,
+`outputs`, and `verification` — instead of the second silently deleting the first's proof.
+
+**Uniqueness is enforced.** Validation rejects a chain in which two steps resolve to the
+same effective id (`workchain validate`, and the engine's own validation path, in both
+strict and non-strict mode), with an error naming both steps and the colliding id. The
+`steps` map must be a faithful per-step record; a chain the engine cannot record honestly
+is refused rather than recorded wrongly. This includes disabled steps.
+
+`id:` must be a single-line scalar — block scalars are not supported, see
+[Known Limitations](#known-limitations-and-parser-gotchas).
+
+---
+
+## Second input (`in2:`)
+
+A step may declare a second audio input with `in2:`. This is the first prerequisite
+of chain topology beyond strict linear: a step can consume one extra file alongside
+the chain input. The design and its scope are explained in
+`docs/product/workchain/08-chain-topology.md`. `in2:` is a **single-line string** — a
+path or glob to a file on disk. It is resolved and staged by the engine; the component
+receives it through exactly one documented channel. There is deliberately **no second
+declaration channel**: `in2:` in the chain is the only way to supply a second input.
+
+### Accepted form
+
+`in2:` must be a non-empty string naming a file, or a glob naming files:
+
+```yaml
+steps:
+  - name: mix             # a component that declares accepts_second_input: true
+    in2: "chains/examples/fixtures/in_b.wav"   # exact path
+    params: { duration_mode: longest }
+```
+
+A **glob** (containing `* ? [`) is expanded and must match **exactly one** file — zero
+matches (nothing to stage) or several (ambiguous) both fail closed at stage time.
+Resolution base is the **engine's working directory** — the same rule as every other
+engine path (`-c`/chain, the input, `-o`/output). A reference to *another step's
+output* is **not** accepted: outputs-as-inputs and graph topology beyond two inputs are
+explicitly out of scope for this unit (see the topology doc).
+
+### Component requirement
+
+A component that consumes a second input must declare it in its `step.yaml`:
+
+```yaml
+accepts_second_input: true
+```
+
+Validation **refuses** a chain step that declares `in2:` against a component without
+this declaration — so a second input can never be silently dropped by a component that
+does not know what to do with it.
+
+### Staging and routing
+
+1. **Validation** (`lib/workchain_yaml.py validate`) checks the syntax and the
+   `accepts_second_input` gate. It does **not** touch the filesystem — whether the
+   `in2:` path exists is a runtime fact of the machine running the chain.
+2. **Staging** (`engine/workchain-engine.sh` `stage_second_input`), before `run.sh`:
+   expands the glob, requires exactly one real audio file (`is_audio_file`), refuses a
+   self-reference (`in2:` resolving to the step's own primary input), and computes the
+   file's sha256. Fail closed at any point — the step never runs on a bad spec.
+3. **Routing**: the resolved path is exported as **`WORKCHAIN_INPUT_2`** — the ONE
+   documented channel. The component reads the primary input through the existing
+   mechanism (`context.json` `input_file`) and the second through this env var. For a
+   single-input step the env var is exported empty, and nothing else changes (byte-
+   identical behaviour).
+4. **Provenance**: the run JSON records both inputs' resolved paths (and the second
+   input's sha256) under the step's effective id:
+
+   ```json
+   "steps": {
+     "mix": {
+       "inputs": {
+         "in":  { "path": "<primary input>" },
+         "in2": { "path": "<second input>", "sha256": "<hex>" }
+       }
+     }
+   }
+   ```
+
+   This is what lets a two-input post-condition name *which* input's fact it measured.
+   Keys recorded only when the step declares `in2:`; single-input steps gain nothing.
+
+### Verification model
+
+`lib/workchain_verify.py` resolves two-input records: `resolve_input_path(ctx,
+step_key, "in"|"in2")` reads the recorded provenance, and the primary-input resolution
+(`_resolve_source`) falls back to it. Post-condition classes are **not** added in this
+unit (the POST_CHECKS owner does that); the model is that a two-input post-condition
+names an input (`in`/`in2`) and measures a fact about it. The demo `mix` component
+shows both halves available today: an **independent** re-measurement of the primary
+timeline (`audio_duration_matches`) and a **component-written** fact sidecar about
+both inputs (`json_fields_within`) — see `components/mix/README.md` for the honesty
+split.
+
+---
+
 ## Parameter Precedence
 
 The engine resolves the effective parameter set for each step from three sources, in ascending priority:
@@ -91,7 +230,7 @@ The engine resolves the effective parameter set for each step from three sources
 2. **Chain globals** — values from the chain's `globals` mapping, filtered to keys that are known params of this component. A key in `globals` that does not match any param in the component's `params_schema` is silently dropped.
 3. **Step `params`** — values in the step's own `params` mapping. These win over globals and defaults unconditionally.
 
-The resolver (`workchain_yaml.resolve_params`) applies this precedence and passes the merged result to the component as the `STEP_CONFIG` environment block (a flat YAML mapping that `run.sh` reads via `get_param`). The verifier sees the same resolved params via `context.json` under `steps.<name>.params`.
+The resolver (`workchain_yaml.resolve_params`) applies this precedence and passes the merged result to the component as the `STEP_CONFIG` environment block (a flat YAML mapping that `run.sh` reads via `get_param`). The verifier sees the same resolved params via `context.json` under `steps.<id>.params` — `id` being the step's effective id (its `id:`, defaulting to its `name`). For chains written before `id:` existed the key is the component name, unchanged.
 
 **Legacy alias (normalization only):** if `globals.lufs_target` is set and the step is `normalization` and `target_lufs` is not in the step's own `params`, the resolver copies `globals.lufs_target` to `resolved.target_lufs`. This alias exists for backward compatibility with chains written before the param was renamed.
 
@@ -113,6 +252,7 @@ Each component directory must contain a `step.yaml` file. The file is a YAML map
 | `outputs` | mapping | no | Declared output artifacts. See [`outputs`](#outputs). |
 | `requirements` | mapping | no | Inbound dependency declarations. See [`requirements`](#requirements). |
 | `verify` | mapping | no | Outbound contract declarations. See [`verify`](#verify). |
+| `accepts_second_input` | boolean | no | Declares the component consumes a **second input** via the `in2:` channel (issue #10). Validation rejects any chain step that declares `in2:` on a component without this. See [Second input (`in2:`)](#second-input-in2). |
 
 ---
 
@@ -364,6 +504,25 @@ Re-measures the integrated LUFS of an audio output with `ffmpeg loudnorm` and fa
 | `output` | `"primary_output"` | Output name to measure. |
 | `target_param` | `"target_lufs"` | Component param name that carries the target LUFS value. Resolved via the full precedence chain (recorded output metadata > step params > globals > schema default). |
 | `tolerance` | `1.0` | Maximum allowed delta in LU (absolute value). |
+
+---
+
+#### audio\_peak\_above
+
+Independent re-measurement that an audio output's peak level is **above** a floor (dBFS).
+Probes the output FILE with ffmpeg `astats` and asserts the measured maximum sample level (dBFS,
+sample-domain, across channels) is *strictly greater* than `threshold`. It never reads the peak
+value the component recorded about itself — the whole point of the check is to witness the file,
+not to believe the renderer's own arithmetic.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output` | `"primary_output"` | Output name to probe (must be an audio file). |
+| `threshold` | — (required) | The floor in dBFS; the measured peak must be **strictly greater**. A literal in the contract, deliberately not resolved from any component parameter, so loosening a related knob (e.g. a component-side liveness floor) cannot loosen the contract. |
+
+Fails closed: a missing `threshold`, a missing output, an unmeasurable peak, or a peak at or
+below the floor all FAIL — a peak post-condition that cannot be evaluated must not pass vacuously.
+(For the −inf silence case the comparison fails, so a silent render is caught.)
 
 ---
 

@@ -1,0 +1,10 @@
+name: "Test: CDP Transform Peak Below Contract Floor"
+description: "A resonant band-pass filter (filter.resonhi at 2 kHz) leaves a 220 Hz tone structurally intact but nearly silent (-65 dBFS). The step loosens its OWN min_peak_dbfs floor to -90 so the component exits 0 - only the verifier can catch it. audio_peak_above re-measures the render's peak with ffmpeg astats against the contract's -60 literal and must FAIL it; the same chain with a 2 kHz tone (in the resonance band) passes."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    enabled: true
+    params:
+      effect: filter.resonhi
+      values_json: '{"freq": 2000, "acuity": 1, "gain": 0.1}'
+      min_peak_dbfs: -90

@@ -25,7 +25,7 @@
       "version": "1.0"
     },
     {
-      "definition_hash": "sha256:a6636ae7a5f8654128cbe42728563b0a979629bccb5ca4c620c0d3db6fa79ab0",
+      "definition_hash": "sha256:89c6a68a2e6a94ce94dc0d9dc136cf38ea6e2ad18020f0d727542bf29f8ab833",
       "description": "Composers Desktop Project sound transformation via cdp-wasm (232 typed spectral / granular / waveset effects), under a fail-closed parameter and output contract",
       "dir": "components/cdp_transform",
       "name": "cdp_transform",
@@ -51,7 +51,7 @@
         "has_contract": true,
         "post_conditions": [
           "params_within_declared_range",
-          "output_is_live_audio",
+          "output_peak_above_floor",
           "envelopes_were_applied",
           "render_is_deterministic"
         ]
@@ -115,7 +115,34 @@
       "version": "1.1"
     },
     {
-      "definition_hash": "sha256:b53e6f9145b10e3a7d47e0fdbf29a51a624a362b26d4050d58ecf17eec82e480",
+      "definition_hash": "sha256:4c00feefec38b37c39b76f2523c642cf6d9fa0609a19977741a5cfe5a9e45cbd",
+      "description": "Two-input audio mix (ffmpeg amix) \u2014 the demo consumer of the in2: second-input channel (issue #10). Sums the step's primary input (the existing chain input) and a second input declared with in2: into one stereo 44.1 kHz WAV.",
+      "dir": "components/mix",
+      "name": "mix",
+      "params": [
+        "duration_mode",
+        "normalize"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output",
+          "mix_metadata"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "mix_preserves_primary_duration",
+          "both_inputs_provenanced"
+        ]
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:89889154205108aed9547bd654807b1c866c6f2d42c80586ac7e67696099b337",
       "description": "LUFS audio normalization using FFmpeg loudnorm filter",
       "dir": "components/normalization",
       "name": "normalization",

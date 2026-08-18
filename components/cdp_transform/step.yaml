@@ -31,7 +31,7 @@ params_schema:
   channels:
     type: string
     default: "split"
-    description: "How to feed multichannel sources to mono-only effects: 'split' processes each channel independently and recombines (preserves channel count, but can decorrelate the stereo image on content-dependent effects), or 'mix' folds to mono first. See the mono-compatibility note in README."
+    description: "How to feed multichannel sources to mono-only effects: 'split' processes each channel independently and recombines (preserves channel count, but can decorrelate the stereo image on content-dependent effects), or 'mix' folds to mono first. See the mono-compatibility note in README. A few effects are flagged stereoUnsafe in the CLI catalog view (node cli/bin/workchain.js run-component cdp_transform --list-effects) because they set their own output channel count no matter what this parameter says — reverb.reverb returns stereo even from a mono source — so neither 'split' nor 'mix' can promise a mono output for them."
   min_peak_dbfs:
     type: number
     default: -60
@@ -62,7 +62,7 @@ outputs:
 
     - name: transform_record
       type: json
-      description: "Effect id, validated parameters, and independently measured output properties (duration, true peak, RMS, rate, channels, stereo correlation, determinism hashes)"
+      description: "Effect id, validated parameters, and independently measured output properties (duration, true peak, RMS, rate, channels, stereo correlation, determinism hashes over the decoded samples plus the recorded container-bytes comparison)"
       required: true
       path_template: "logs/cdp_transform.json"
 
@@ -76,11 +76,12 @@ outputs:
 # reports `ok (0.00s, 1ch)` with exit 0. See
 #
 # HONEST SCOPING: `audio_valid` re-measures duration from the file (ffprobe ground
-# truth) and independently kills the zero-length class. The peak floor and the
-# determinism relation are asserted through `json_fields_within`, which reads values
-# the component measured and wrote — weaker than a re-measuring check. When an
-# `audio_peak_above` post-condition lands in workchain_verify.py, output_is_live_audio
-# should migrate to it.
+# truth) and independently kills the zero-length class. The peak floor is asserted through
+# `audio_peak_above`, the verifier's independent re-measurement of the FILE (ffmpeg astats)
+# against a -60 literal that is deliberately the contract's own, NOT the min_peak_dbfs
+# parameter — so loosening the parameter cannot loosen the contract. The determinism
+# relation remains asserted through `json_fields_within`, which reads values the component
+# measured and wrote — weaker than a re-measuring check.
 verify:
   schema_version: "1.0"
   outputs:
@@ -95,6 +96,8 @@ verify:
         - measured_duration_s
         - measured_peak_dbfs
         - determinism_ok
+        - render_samples_sha256
+        - container_bytes_stable
         - envelopes_all_applied
   post_conditions:
     - id: params_within_declared_range
@@ -105,13 +108,11 @@ verify:
         - "params_unknown == 0"
       description: "Every supplied effect parameter was inside the cdp-wasm catalog's declared range for that parameter, and named a parameter that actually exists. This is the gate cdp-wasm leaves to the caller: its catalog knows stretch.time factor has min 0.25 and passes 0.02 straight through to a silent render. Refusing out-of-range input before processing eliminates that failure at the source rather than detecting it afterwards."
 
-    - id: output_is_live_audio
-      check: json_fields_within
-      output: transform_record
-      require:
-        - "measured_duration_s > 0"
-        - "measured_peak_dbfs > -60"
-      description: "The render is audible, not merely well-formed. Positive duration catches the zero-length case; the peak floor catches the inaudible case (filter.lohi with passband 20 / stopband 22 produces two full seconds of -63.97 dBFS and exits 0). The -60 literal is the contract's own floor and is deliberately independent of the min_peak_dbfs parameter, so loosening the parameter cannot silently loosen the contract."
+    - id: output_peak_above_floor
+      check: audio_peak_above
+      output: primary_output
+      threshold: -60
+      description: "The rendered output's peak is audible, not merely well-formed: the verifier re-measures the peak of the written FILE with ffmpeg astats and demands it exceed -60 dBFS. It never reads measured_peak_dbfs from the component's own record. A structurally-valid-but-inaudible render (filter.resonhi freq 2000 / acuity 1 / gain 0.1 on a 220 Hz tone returns -65.1 dBFS and exits cleanly once min_peak_dbfs is loosened) is caught here no matter what the step's min_peak_dbfs parameter allows. The -60 literal is the contract's own floor and is deliberately independent of the min_peak_dbfs parameter, so loosening the parameter cannot silently loosen the contract."
 
     - id: envelopes_were_applied
       check: json_fields_within
@@ -125,7 +126,7 @@ verify:
       output: transform_record
       require:
         - "determinism_ok == true"
-      description: "Metamorphic invariant: rendering the same input with the same parameters twice produces byte-identical audio. Asserted only for effects the cdp-wasm catalog does NOT mark parityExempt (seeded RNG / randomised event placement); for those, the component sets determinism_ok true and records both hashes without claiming equality. The field is emitted only when both renders completed, so a run where either side failed to execute reports a missing field and FAILS rather than passing on None == None."
+      description: "Metamorphic invariant: rendering the same input with the same parameters twice produces the same decoded audio. determinism_ok compares SHA-256 digests over the DECODED SAMPLES (render_samples_sha256(+_repeat)) -- the container is deliberately not part of the claim, because CDP's soundfile layer stamps wall-clock fields into the WAV header (PEAK chunk timestamp, LIST/adtl DATE) and two renders of bit-identical audio differ by those bytes whenever they straddle a second boundary. The old container-bytes comparison is kept as a recorded, non-gating fact (container_bytes_stable) so the step still reports it without failing on it. Asserted only for effects the cdp-wasm catalog does NOT mark parityExempt (seeded RNG / randomised event placement); for those, the component sets determinism_ok true and records both sample digests without claiming equality. The field is emitted only when both renders completed, so a run where either side failed to execute reports a missing field and FAILS rather than passing on None == None."
 
 requirements:
   commands:
