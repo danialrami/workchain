@@ -196,8 +196,10 @@ if [[ "$MODE" == "hybrid" ]]; then
     # Fold stage-2 residual vocals into `other` so nothing is discarded and the four
     # stems recombine exactly to the source (vocals + drums + bass + other == mix).
     if [[ -n "$D_VOX" && -f "$D_VOX" ]]; then
+        # amix's normalize option needs ffmpeg >= 4.4; the fleet image is 4.2.x, so we
+        # pre-scale ×2 and let amix's default 1/N normalisation make the same mix.
         ffmpeg -nostdin -hide_banner -y -i "$D_OTHER" -i "$D_VOX" \
-            -filter_complex "amix=inputs=2:normalize=0[o]" -map "[o]" "$OTHER_OUT" >> "$LOG_FILE" 2>&1
+            -filter_complex "[0:a]volume=2.0[a0];[1:a]volume=2.0[a1];[a0][a1]amix=inputs=2[o]" -map "[o]" "$OTHER_OUT" >> "$LOG_FILE" 2>&1
         [[ ! -f "$OTHER_OUT" ]] && mv -f "$D_OTHER" "$OTHER_OUT"
     else
         mv -f "$D_OTHER" "$OTHER_OUT"
