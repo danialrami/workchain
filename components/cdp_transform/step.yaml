@@ -31,7 +31,7 @@ params_schema:
   channels:
     type: string
     default: "split"
-    description: "How to feed multichannel sources to mono-only effects: 'split' processes each channel independently and recombines (preserves channel count, but can decorrelate the stereo image on content-dependent effects), or 'mix' folds to mono first. See the mono-compatibility note in README."
+    description: "How to feed multichannel sources to mono-only effects: 'split' processes each channel independently and recombines (preserves channel count, but can decorrelate the stereo image on content-dependent effects), or 'mix' folds to mono first. See the mono-compatibility note in README. A few effects are flagged stereoUnsafe in the CLI catalog view (node cli/bin/workchain.js run-component cdp_transform --list-effects) because they set their own output channel count no matter what this parameter says — reverb.reverb returns stereo even from a mono source — so neither 'split' nor 'mix' can promise a mono output for them."
   min_peak_dbfs:
     type: number
     default: -60
