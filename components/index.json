@@ -25,7 +25,7 @@
       "version": "1.0"
     },
     {
-      "definition_hash": "sha256:56ba37129de38373a9fd269a2d5fd7f15db303321db0da1950ea889392cec211",
+      "definition_hash": "sha256:6eaaf972673b5b34cd7be23ab688fe791785c96307719140a58f8b3007d72c4c",
       "description": "Composers Desktop Project sound transformation via cdp-wasm (232 typed spectral / granular / waveset effects), under a fail-closed parameter and output contract",
       "dir": "components/cdp_transform",
       "name": "cdp_transform",
@@ -51,7 +51,7 @@
         "has_contract": true,
         "post_conditions": [
           "params_within_declared_range",
-          "output_is_live_audio",
+          "output_peak_above_floor",
           "envelopes_were_applied",
           "render_is_deterministic"
         ]
@@ -115,7 +115,7 @@
       "version": "1.1"
     },
     {
-      "definition_hash": "sha256:b53e6f9145b10e3a7d47e0fdbf29a51a624a362b26d4050d58ecf17eec82e480",
+      "definition_hash": "sha256:89889154205108aed9547bd654807b1c866c6f2d42c80586ac7e67696099b337",
       "description": "LUFS audio normalization using FFmpeg loudnorm filter",
       "dir": "components/normalization",
       "name": "normalization",

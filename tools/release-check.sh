@@ -268,6 +268,12 @@ if [[ $CDP -eq 1 ]]; then
     for c in chains/tests/cdp_transform*.yaml chains/cdp-*.yaml; do
         [[ -f "$c" ]] && run_chain "$c" tone.wav
     done
+    # The negative CDP case: a resonant band-pass filter leaves a 220 Hz tone well-formed but
+    # nearly silent (-65 dBFS). The fixture loosens the component's own min_peak_dbfs to -90 so
+    # the component exits 0, and only the verifier's independent audio_peak_above (contract
+    # floor -60, re-measured with ffmpeg astats) can catch it. Feeds off the same tone.wav
+    # fixture as the pass set above; the fail expectation is the point.
+    run_chain chains/tests/cdp_peak_floor_fail.yaml tone.wav fail
 else
     skip "CDP chains (pass --cdp; needs: npm install cdp-wasm, or set CDP_WASM_DIR)"
 fi

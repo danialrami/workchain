@@ -76,23 +76,27 @@ Structural asserts: `primary_output` must satisfy `exists`, `non_empty`, `audio_
 requires it to be greater than zero, which is exactly what kills the zero-length class —
 `non_empty` alone passes the bad file at 2130 bytes, the same way `requireOutput` does upstream.
 
-Three post-conditions:
+Four post-conditions:
 
 | id | Guards against |
 | --- | --- |
 | `params_within_declared_range` | A parameter outside the catalog's declared range, or naming a parameter that does not exist. Refused before processing |
-| `output_is_live_audio` | `measured_duration_s > 0` and `measured_peak_dbfs > -60` — empty *or* inaudible renders |
+| `output_peak_above_floor` | A render whose peak is at or below −60 dBFS — the well-formed-but-inaudible class. **audio_peak_above** re-measures the FILE with ffmpeg astats, independently of the component's record |
+| `envelopes_were_applied` | A breakpoint envelope the step asked for that was not applied |
 | `render_is_deterministic` | `determinism_ok == true`. Same input and parameters render the same decoded samples; the container is deliberately not part of the claim |
 
 **Honest scoping — read this before trusting the contract further than it goes.**
-`audio_valid` and the duration check are independent re-measurements of the file. The peak
-floor and the determinism relation are asserted through `json_fields_within`, which evaluates
-values *this component measured and wrote*. That is weaker than a re-measuring check: it proves
-the component's own arithmetic is consistent with its declared bounds, not that an independent
-authority agrees. There is no `audio_peak_above` post-condition in `lib/workchain_verify.py`
-yet; adding one is the right fix, and `output_is_live_audio` should migrate to it when it
-lands. The `-60` in the contract is a deliberate literal rather than a reference to
-`min_peak_dbfs`, so loosening the parameter cannot silently loosen the contract.
+`audio_valid` re-measures duration from the file with ffprobe, and `output_peak_above_floor`
+re-measures the peak from the file with ffmpeg `astats` — both are independent re-measurements
+of the written output; neither reads the value the component wrote about itself. What remains
+asserted through `json_fields_within` (self-reported) is the determinism relation and the
+parameter/envelope accounting: those compare fields the component computed, which is the right
+tier for claims only the component's own pipeline can produce, and it is weaker than an
+independent re-measurement. The `-60` floor is a deliberate literal in the contract rather than
+a reference to `min_peak_dbfs`, so loosening the parameter cannot silently loosen the contract.
+The fixture `chains/tests/cdp_peak_floor_fail.yaml` proves that independence: it loosens
+`min_peak_dbfs` to `-90` so a `-65.1 dBFS` render exits the component cleanly and is still
+failed by the verifier's re-measured floor.
 
 **Why the samples and not the file?** Two renders of identical audio can still differ as
 files: CDP's soundfile layer stamps wall-clock fields into the WAV container (the `PEAK` chunk
