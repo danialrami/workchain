@@ -94,6 +94,18 @@ gap. The target is resolved from the params the step actually ran with (params >
 schema default), so a `--params-json '{"target_lufs":-16}'` run is checked against −16, not the
 default.
 
+**The true-peak ceiling is honestly not independently re-measured.** `true_peak` is a *ceiling*:
+`loudnorm` must not let the output exceed −1.5 dBTP. The verifier's peak primitive here is
+`audio_peak_above`, whose semantic is strictly "the re-measured peak is above a floor" — proving
+the peak is above *X* can never prove it is at most *Y*, so an at-most ceiling cannot be asserted
+with it without lying about the direction. The ceiling therefore stays a component-reported claim:
+the component writes loudnorm's TP measurement into `loudness_metadata`, and nothing in the verify
+contract re-measures it. What IS independently re-measured is loudness (`audio_lufs_within` reads
+the output with loudnorm from the file) — a silent or truncated normalization reports −inf and
+fails the ±1.0 LU target check — so the "exited 0 but silent" class is covered. If you need the
+ceiling itself audited by an independent authority, that is a `below`/at-most primitive that is
+not shipped (and deliberately out of this unit's scope).
+
 ## Usage
 
 Run standalone:

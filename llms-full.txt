@@ -1999,6 +1999,25 @@ Re-measures the integrated LUFS of an audio output with `ffmpeg loudnorm` and fa
 
 ---
 
+#### audio\_peak\_above
+
+Independent re-measurement that an audio output's peak level is **above** a floor (dBFS).
+Probes the output FILE with ffmpeg `astats` and asserts the measured maximum sample level (dBFS,
+sample-domain, across channels) is *strictly greater* than `threshold`. It never reads the peak
+value the component recorded about itself — the whole point of the check is to witness the file,
+not to believe the renderer's own arithmetic.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output` | `"primary_output"` | Output name to probe (must be an audio file). |
+| `threshold` | — (required) | The floor in dBFS; the measured peak must be **strictly greater**. A literal in the contract, deliberately not resolved from any component parameter, so loosening a related knob (e.g. a component-side liveness floor) cannot loosen the contract. |
+
+Fails closed: a missing `threshold`, a missing output, an unmeasurable peak, or a peak at or
+below the floor all FAIL — a peak post-condition that cannot be evaluated must not pass vacuously.
+(For the −inf silence case the comparison fails, so a silent render is caught.)
+
+---
+
 #### audio\_format\_matches
 
 Re-probes an audio output with `ffprobe` and confirms its sample rate, channel count, and/or bit depth match what the step was asked to produce. Fails if no format dimension resolves (empty contract proves nothing).

@@ -76,11 +76,12 @@ outputs:
 # reports `ok (0.00s, 1ch)` with exit 0. See
 #
 # HONEST SCOPING: `audio_valid` re-measures duration from the file (ffprobe ground
-# truth) and independently kills the zero-length class. The peak floor and the
-# determinism relation are asserted through `json_fields_within`, which reads values
-# the component measured and wrote — weaker than a re-measuring check. When an
-# `audio_peak_above` post-condition lands in workchain_verify.py, output_is_live_audio
-# should migrate to it.
+# truth) and independently kills the zero-length class. The peak floor is asserted through
+# `audio_peak_above`, the verifier's independent re-measurement of the FILE (ffmpeg astats)
+# against a -60 literal that is deliberately the contract's own, NOT the min_peak_dbfs
+# parameter — so loosening the parameter cannot loosen the contract. The determinism
+# relation remains asserted through `json_fields_within`, which reads values the component
+# measured and wrote — weaker than a re-measuring check.
 verify:
   schema_version: "1.0"
   outputs:
@@ -107,13 +108,11 @@ verify:
         - "params_unknown == 0"
       description: "Every supplied effect parameter was inside the cdp-wasm catalog's declared range for that parameter, and named a parameter that actually exists. This is the gate cdp-wasm leaves to the caller: its catalog knows stretch.time factor has min 0.25 and passes 0.02 straight through to a silent render. Refusing out-of-range input before processing eliminates that failure at the source rather than detecting it afterwards."
 
-    - id: output_is_live_audio
-      check: json_fields_within
-      output: transform_record
-      require:
-        - "measured_duration_s > 0"
-        - "measured_peak_dbfs > -60"
-      description: "The render is audible, not merely well-formed. Positive duration catches the zero-length case; the peak floor catches the inaudible case (filter.lohi with passband 20 / stopband 22 produces two full seconds of -63.97 dBFS and exits 0). The -60 literal is the contract's own floor and is deliberately independent of the min_peak_dbfs parameter, so loosening the parameter cannot silently loosen the contract."
+    - id: output_peak_above_floor
+      check: audio_peak_above
+      output: primary_output
+      threshold: -60
+      description: "The rendered output's peak is audible, not merely well-formed: the verifier re-measures the peak of the written FILE with ffmpeg astats and demands it exceed -60 dBFS. It never reads measured_peak_dbfs from the component's own record. A structurally-valid-but-inaudible render (filter.resonhi freq 2000 / acuity 1 / gain 0.1 on a 220 Hz tone returns -65.1 dBFS and exits cleanly once min_peak_dbfs is loosened) is caught here no matter what the step's min_peak_dbfs parameter allows. The -60 literal is the contract's own floor and is deliberately independent of the min_peak_dbfs parameter, so loosening the parameter cannot silently loosen the contract."
 
     - id: envelopes_were_applied
       check: json_fields_within
