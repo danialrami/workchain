@@ -115,7 +115,8 @@ else bad "not executable in this working tree:$missing"; fi
 # Generated, never committed: a binary fixture in git is a fixture nobody can regenerate.
 say "1. Generating fixtures"
 mk() {
-    local name="$1"; shift out
+    local name="$1" out
+    shift
     # 2>&1 (not /dev/null): when a fixture fails, the real ffmpeg error is exactly the
     # diagnostic you need — like amix's normalize being unavailable on older ffmpeg.
     if out=$(ffmpeg -nostdin -hide_banner -loglevel error -y "$@" "$WORK/$name" 2>&1); then

@@ -171,7 +171,7 @@
       "version": "1.1"
     },
     {
-      "definition_hash": "sha256:95cb940e4a820f3e6b613aae6adf9de5e8695bcc3b7405f489edd13de0b32dc0",
+      "definition_hash": "sha256:f50837bbbf4e22d5267caa34cc2bbc8c8a595d6a35a32eb32441295eab880022",
       "description": "Source separation via python-audio-separator (UVR model zoo), selectable by a single `preset` knob. Default `hybrid` = two-stage RoFormer\u2192Demucs: RoFormer-grade vocals + a full drums/bass/other split. Also demucs (4-stem), demucs6 (6-stem), roformer/mdx (2-stem), custom. Heavy component \u2014 runs in its own venv, not the light path.",
       "dir": "components/stem_separation",
       "name": "stem_separation",
