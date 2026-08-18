@@ -30,7 +30,7 @@ No native build, no Python, no `uv` venv — plain Node plus one npm package.
 | `effect` | string | `blur.blur` | — | cdp-wasm catalog effect id (`blur.blur`, `stretch.time`, `grain.reorder`, …). 232 available; `transform.mjs --list-effects` prints them as JSON with per-parameter ranges and a `supported` flag |
 | `values_json` | string | `{}` | — | JSON object of effect parameters, e.g. `{"factor": 4}`. Anything omitted uses the cdp-wasm catalog default. Every supplied value is checked against that effect's declared min/max **before** any audio is processed |
 | `values_brk_json` | string | `{}` | — | JSON object mapping a parameter to a breakpoint envelope so it varies over time: `{"windows": "0 1\n2 80"}` sweeps blur from 1 to 80 windows across two seconds. Each line is `time value`; times must not decrease and at least two points are required |
-| `channels` | string | `split` | `split` \| `mix` | How multichannel sources reach mono-only effects. `split` processes each channel independently and recombines, preserving channel count; `mix` folds to mono first. See Edge cases — `split` is not free |
+| `channels` | string | `split` | `split` \| `mix` | How multichannel sources reach mono-only effects. `split` processes each channel independently and recombines, preserving channel count; `mix` folds to mono first. See Edge cases — `split` is not free, and the `stereoUnsafe` flag for effects that own their output width |
 | `min_peak_dbfs` | number | `-60` | −120 to 0 | Liveness floor. The render's true peak must exceed this or the step fails. Catches the well-formed-but-inaudible result |
 | `allow_unlocked_range` | boolean | `false` | — | Fall back to the engine's hard limit (`hardMin`/`hardMax`) for parameters that record one. Many do not, and those stay bound by the curated range even when unlocked. Never disables the output contract |
 | `cdp_wasm_dir` | string | `""` | — | Path to an installed `cdp-wasm` package (the directory with `package.json` and `wasm/`). Empty resolves `cdp-wasm` from `node_modules`. Also read from `CDP_WASM_DIR` |
@@ -124,8 +124,8 @@ node cli/bin/workchain.js run-component cdp_transform input.wav -o ./out \
 #       values_json: '{"windows": 40}'
 #       min_peak_dbfs: -50
 
-# Browse the catalog as JSON (232 effects, ranges, supported flag)
-node components/cdp_transform/transform.mjs --list-effects | python3 -m json.tool | less
+# Browse the catalog as JSON via the CLI (232 effects, ranges, per-effect flags incl. stereoUnsafe)
+node cli/bin/workchain.js run-component cdp_transform --list-effects --json | python3 -m json.tool | less
 ```
 
 ## Edge cases
@@ -146,6 +146,30 @@ node components/cdp_transform/transform.mjs --list-effects | python3 -m json.too
   `stereo_correlation` and `mono_sum_change_db` for every stereo render but does not yet gate
   on them — the right threshold is a musical judgement we have not made. If mono compatibility
   matters for your material, use `channels: mix`, or check the record.
+- **Some effects own their output channel count — the catalog flags them `stereoUnsafe`.**
+  The installed `cdp-wasm@0.6.0` catalog declares this per effect through two fields (quoted
+  from `index.d.ts`): `setsChannels` — *"Output channel count is set by the effect (e.g.
+  multichannel reverb), not the source"* — and `input` — *"Fixed input layout
+  (spatialisation): source is conformed before processing"*; the four effects with
+  `input: 'stereo'` get their input conformed up to stereo. The catalog has **no field named
+  `stereoUnsafe`** (checked across all 232 `EFFECTS` entries), so the CLI's `--list-effects`
+  derives one and labels it as ours, not upstream's: `stereoUnsafe = setsChannels || input === 'stereo'`.
+  We verified the derivation against the installed package by rendering mono input:
+  `reverb.reverb` returns **stereo**, `mchanpan.spread` returns **4 channels**,
+  `mchshred.shred` and `phasor.phasor` return **stereo**, and each of `phase.stereo`,
+  `spin.stereo`, `flutter.flutter`, `modify.shudder` returns **stereo**; the unflagged
+  controls (`blur.blur`, `stretch.time`) return the source's channel count exactly. 22 of the
+  28 flagged effects are runnable here: `brownian.motion`, `ceracu.cycles`,
+  `crumble.crumble`, `crumble.crumble16`, `crystal.rotate`, `flutter.flutter`,
+  `fracture.fracture`, `madrid.syncopate`, `mchanpan.spread`, `mchanrev.stadium`,
+  `mchshred.shred`, `modify.shudder`, `newtex.drunk`, `phase.stereo`, `phasor.phasor`,
+  `reverb.reverb`, `reverb.room`, `rotor.rotor`, `shifter.cycles`, `spin.stereo`,
+  `tesselate.tesselate`, `wrappage.wrappage` — the other six (`multimix.spread`,
+  `multimix.channels`, `panorama.spatial`, `submix.interleave`, `tangent.tangent`,
+  `transit.transit`) are mixChain or two-input and refused before they run. For the flagged
+  class neither `split` nor `mix` can promise a mono **output**: `mix` folds the input, but
+  the effect then decides the width. If a downstream step assumes mono, avoid these ids or
+  gate on `measured_channels` in the transform record.
 - **Spectral effects are auto-wrapped** in `pvoc anal → effect → pvoc synth` by the library.
   Output duration quantises to analysis windows, so expect roughly ±30 ms against the input —
   which is why `duration_ratio` is recorded rather than asserted.
@@ -180,6 +204,39 @@ glossed.
 
 `light` — plain Node plus the `cdp-wasm` npm package; no venv, no model weights, no native
 toolchain. The bundled WebAssembly is about 11 MB installed.
+
+## Decision log — issue #11 (`stereoUnsafe` catalog flag)
+
+Roadmap, non-blocking. **Decision: surface the flag now, derived and labelled, and keep the
+upstream proposal drafted rather than filed from an agent.**
+
+1. **Upstream condition met.** cdp-wasm#4 ("stretch.time below the declared minimum returns a
+   zero-length file with exit 0", filed by this repo's owner) was closed by the maintainer and
+   the fix shipped in `cdp-wasm@0.6.0`; this repo has been on `^0.6.0` since the wave-0
+   dependency bump. The issue asked to revisit the stereo signal once that landed.
+2. **Investigation (checkbox 1).** The installed `cdp-wasm@0.6.0` catalog carries **no**
+   `stereoUnsafe` field — the top-level key union across all 232 `EFFECTS` entries is `args,
+   blurb, category, cdpDoc, collect, data, derive, domain, external, fixedParams, id, in2,
+   input, inputs, label, mixChain, mono, multiOut, needs, params, parityExempt, paritySkip,
+   pipeline, prefersGrains, prefersHarmonic, program, setsChannels, variadicInputs`. The two
+   buildable building blocks are quoted in the mono-compat section above: `setsChannels`
+   (24 effects — the effect defines its own output width) and `input: 'stereo'` (4 effects,
+   source conformed up to stereo). Both classes were verified against the installed package
+   to raise the channel count from a mono source while unflagged effects preserve it exactly.
+3. **Decision (checkbox 2) — surface now, derived, labelled.** The CLI's `--list-effects [--json]`
+   derives `stereoUnsafe = setsChannels || input === 'stereo'` from the installed catalog and
+   names it as our derivation, since the flag name is the issue's vocabulary, not upstream's.
+   Informational only: no render path, parameter range or post-condition changes. It closes a
+   real gap in this step's own documented contract — the `channels` parameter promises mono
+   handling, but its `mix` mode only folds for mono-only effects, and the flagged class sets
+   its own output width regardless.
+4. **Upstream (checkbox 3) — draft, do not file from an agent.** A proposal to cdp-wasm —
+   declare a per-effect output-channel field (e.g. an explicit `stereoUnsafe`/`outChans`) so
+   consumers do not derive it from `setsChannels` and `input` — is drafted in the PR that
+   shipped this section. Per our submitting-an-issue rule we **never file on behalf of Daniel
+   without his review**, and this automation holds no cdp-wasm write scope. **Trigger to
+   file:** when this PR merges and the derived semantics survive review, file the drafted
+   issue under our existing cdp-wasm#4 relationship.
 
 ## Licensing note
 
