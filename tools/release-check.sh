@@ -115,11 +115,14 @@ else bad "not executable in this working tree:$missing"; fi
 # Generated, never committed: a binary fixture in git is a fixture nobody can regenerate.
 say "1. Generating fixtures"
 mk() {
-    local name="$1"; shift
-    if ffmpeg -nostdin -hide_banner -loglevel error -y "$@" "$WORK/$name" 2>/dev/null; then
+    local name="$1" out
+    shift
+    # 2>&1 (not /dev/null): when a fixture fails, the real ffmpeg error is exactly the
+    # diagnostic you need — like amix's normalize being unavailable on older ffmpeg.
+    if out=$(ffmpeg -nostdin -hide_banner -loglevel error -y "$@" "$WORK/$name" 2>&1); then
         ok "$name"
     else
-        bad "could not generate fixture $name"
+        bad "could not generate fixture $name${out:+ — $out}"
     fi
 }
 # plain stereo tone, easy case
@@ -137,12 +140,16 @@ mk odd-format.wav -f lavfi -i "sine=frequency=330:duration=2:sample_rate=44100" 
 # (%chromatic instrumentals), plus — where a speech synthesizer is available — a spoken vocal
 # line so the handoff chain (stem_separation -> normalization) gets a real, non-silent vocals
 # stem instead of an honest-but-unverified skip.
-mk inst.wav -f lavfi -i "aevalsrc=0.22*sin(2*PI*220*t)+0.16*sin(2*PI*277.18*t)+0.15*sin(2*PI*329.63*t)+0.11*sin(2*PI*440*t)+0.06*sin(2*PI*554.37*t)+0.05*sin(2*PI*659.25*t):d=4:s=44100" -f lavfi -i "anoisesrc=color=brown:amplitude=0.10:d=4:s=44100" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:normalize=0,volume=0.8[a]" -map "[a]" -ac 2 -c:a pcm_s16le
+#
+# NB the mix must NOT use amix's normalize=0: that option needs ffmpeg >= 4.4 and the
+# fleet image is Ubuntu focal (ffmpeg 4.2.x). amix's default 1/N normalisation applied
+# to ×2 pre-scaled inputs reproduces the intended normalize=0 mix on every version.
+mk inst.wav -f lavfi -i "aevalsrc=0.22*sin(2*PI*220*t)+0.16*sin(2*PI*277.18*t)+0.15*sin(2*PI*329.63*t)+0.11*sin(2*PI*440*t)+0.06*sin(2*PI*554.37*t)+0.05*sin(2*PI*659.25*t):d=4:s=44100" -f lavfi -i "anoisesrc=color=brown:amplitude=0.10:d=4:s=44100" -filter_complex "[0:a]volume=2.0[a0];[1:a]volume=2.0[a1];[a0][a1]amix=inputs=2:duration=first,volume=0.8[a]" -map "[a]" -ac 2 -c:a pcm_s16le
 TTS=""; command -v espeak-ng >/dev/null 2>&1 && TTS=espeak-ng; [ -z "$TTS" ] && command -v espeak >/dev/null 2>&1 && TTS=espeak
 if [[ -n "$TTS" ]]; then
     "$TTS" -w "$WORK/vox.wav" -s 150 -p 50 "This is the work chain stem separation test" >/dev/null 2>&1
     if ffmpeg -nostdin -hide_banner -loglevel error -y -i "$WORK/inst.wav" -i "$WORK/vox.wav" \
-        -filter_complex "[0:a]aresample=44100,apad[a0];[1:a]aresample=44100,aformat=channel_layouts=stereo[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0,volume=0.9,atrim=0:6[a]" \
+        -filter_complex "[0:a]aresample=44100,apad,volume=2.0[a0];[1:a]aresample=44100,aformat=channel_layouts=stereo,volume=2.0[a1];[a0][a1]amix=inputs=2:duration=longest,volume=0.9,atrim=0:6[a]" \
         -map "[a]" -ac 2 -c:a pcm_s16le "$WORK/mix.wav" 2>/dev/null; then
         ok "mix.wav (instrumental + TTS vocal)"
     else

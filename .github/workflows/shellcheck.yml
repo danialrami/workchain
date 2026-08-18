@@ -58,19 +58,29 @@ on:
       - 'lib/*.sh'
       - 'components/*/run.sh'
       - 'components/audio_benchmark/*.sh'
-      - 'ci/shellcheck.yml'
+      - '.github/workflows/shellcheck.yml'
   pull_request:
     paths:
       - 'engine/*.sh'
       - 'lib/*.sh'
       - 'components/*/run.sh'
       - 'components/audio_benchmark/*.sh'
-      - 'ci/shellcheck.yml'
+      - '.github/workflows/shellcheck.yml'
+
+permissions:
+  contents: read
 
 jobs:
   shellcheck:
     name: ShellCheck ([self-hosted, lufs])
     runs-on: [self-hosted, lufs]
+    # Same fleet gate as verify.yml: main pushes or canonical-repo PRs by approved
+    # actors only. Fork PRs are skipped and never touch a self-hosted runner.
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(fromJSON('["danialrami"]'), github.actor))
 
     steps:
       - name: Checkout
