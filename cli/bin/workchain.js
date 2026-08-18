@@ -75,10 +75,11 @@ const runComponentCmd = program
   .command('run-component')
   .description('Run a component standalone (outside of a chain)')
   .argument('<component>', 'Component name (directory in components/)')
-  .argument('<input>', 'Input audio file or directory')
+  .argument('[input]', 'Input audio file or directory (not required with --list-effects)')
   .option('-o, --output <dir>', 'Output directory (default: ./output_YYYYMMDD_HHMMSS)')
   .option('--timeout <seconds>', 'Max execution time in seconds (default: 3600)', parseInt)
   .option('--params-json <json>', 'Component parameters as JSON string (e.g., \'{"target_lufs":-14}\')')
+  .option('--list-effects', 'List the cdp-wasm effect catalog (id, group, outputs, per-parameter min/max/default) instead of processing an input')
   .option('-r, --recursive', 'Recursively scan directories for audio files (batch mode)')
   .option('-e, --extensions <list>', 'Comma-separated list of extensions (default: mp3,wav,flac,etc)')
   .action(runComponentCommand);
@@ -89,6 +90,14 @@ Examples:
   $ workchain run-component normalization input.wav --params-json '{"target_lufs":-14}'
   $ workchain run-component audio_benchmark input.wav --json
   $ workchain run-component canvas_01 input.wav --output ./assets
+  $ workchain run-component cdp_transform --list-effects
+  $ workchain run-component cdp_transform --list-effects --json
+
+Catalog listing (no input required):
+  $ workchain run-component cdp_transform --list-effects        human form
+  $ workchain run-component cdp_transform --list-effects --json machine-readable
+
+The catalog is resolved exactly like a real run (cdp_wasm_dir param → CDP_WASM_DIR env → node_modules).
 
 Batch mode (process directory of audio files):
   $ workchain run-component audio_benchmark /path/to/audio/folder --json

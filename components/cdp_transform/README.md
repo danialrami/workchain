@@ -46,8 +46,10 @@ Input: `wav`, `mp3`, `aiff`, `aif`, `flac`, `m4a`, `ogg`.
 
 The record carries `measured_duration_s`, `measured_peak_dbfs`, `measured_rms_dbfs`,
 `measured_sample_rate`, `measured_channels`, `input_duration_s`, `duration_ratio`,
-`render_sha256` (+ `render_sha256_repeat`), `determinism_ok`, and — for stereo output —
-`stereo_correlation` and `mono_sum_change_db`.
+`render_sha256` (+ `render_sha256_repeat`, file bytes), `render_samples_sha256`
+(+ `render_samples_sha256_repeat`, SHA-256 over the decoded samples), `determinism_ok`
+(gated on the sample digests), `container_bytes_stable` (recorded file-bytes comparison,
+non-gating), and — for stereo output — `stereo_correlation` and `mono_sum_change_db`.
 
 ## Verified IN (inbound contract)
 
@@ -68,7 +70,7 @@ resolves it explicitly and fails with install instructions if it is absent. Inst
 Structural asserts: `primary_output` must satisfy `exists`, `non_empty`, `audio_valid`;
 `transform_record` must satisfy `exists`, `non_empty`, `json_valid` and carry `effect`,
 `params_out_of_range`, `params_unknown`, `measured_duration_s`, `measured_peak_dbfs`,
-`determinism_ok`.
+`determinism_ok`, `render_samples_sha256`, `container_bytes_stable`.
 
 `audio_valid` is the load-bearing one. It re-measures duration from the file with ffprobe and
 requires it to be greater than zero, which is exactly what kills the zero-length class —
@@ -80,7 +82,7 @@ Three post-conditions:
 | --- | --- |
 | `params_within_declared_range` | A parameter outside the catalog's declared range, or naming a parameter that does not exist. Refused before processing |
 | `output_is_live_audio` | `measured_duration_s > 0` and `measured_peak_dbfs > -60` — empty *or* inaudible renders |
-| `render_is_deterministic` | `determinism_ok == true`. Same input and parameters render byte-identically |
+| `render_is_deterministic` | `determinism_ok == true`. Same input and parameters render the same decoded samples; the container is deliberately not part of the claim |
 
 **Honest scoping — read this before trusting the contract further than it goes.**
 `audio_valid` and the duration check are independent re-measurements of the file. The peak
@@ -92,12 +94,21 @@ yet; adding one is the right fix, and `output_is_live_audio` should migrate to i
 lands. The `-60` in the contract is a deliberate literal rather than a reference to
 `min_peak_dbfs`, so loosening the parameter cannot silently loosen the contract.
 
+**Why the samples and not the file?** Two renders of identical audio can still differ as
+files: CDP's soundfile layer stamps wall-clock fields into the WAV container (the `PEAK` chunk
+timestamp and the `LIST`/`adtl` `DATE` string), so a render that straddles a second boundary
+differs from its sibling in exactly those bytes while the decoded samples are identical.
+`determinism_ok` therefore compares SHA-256 digests over the **decoded samples**
+(`render_samples_sha256` vs `render_samples_sha256_repeat`), and the old file-bytes
+comparison is kept as a recorded, non-gating fact (`container_bytes_stable`) so the record
+still says whether the container matched without letting a wall-clock field fail the step.
+
 Determinism is asserted only for effects the catalog does **not** mark `parityExempt` or
 `paritySkip` (seeded RNG, randomised event placement). For those, the component sets
-`determinism_ok` true, records both hashes, and states in `determinism_note` that equality was
-not claimed — rather than manufacturing a passing comparison. The field is emitted only when
-both renders actually completed, so a run where either side failed reports a missing field and
-**fails**; it cannot pass on `None == None`.
+`determinism_ok` true, records both sample digests, and states in `determinism_note` that
+equality was not claimed — rather than manufacturing a passing comparison. The field is
+emitted only when both renders actually completed, so a run where either side failed reports a
+missing field and **fails**; it cannot pass on `None == None`.
 
 ## Usage
 

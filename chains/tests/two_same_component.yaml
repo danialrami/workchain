@@ -1,0 +1,16 @@
+name: "Two steps of the same component, distinct ids"
+description: "Regression chain for issue #22: two cdp_transform steps with explicit ids (trace/blur) must each keep their own record in context.json — params, outputs, and verification — instead of the second overwriting the first."
+version: "1.0"
+steps:
+  - name: cdp_transform
+    id: trace
+    enabled: true
+    params:
+      effect: hilite.trace
+      values_json: '{"partials": 8}'
+  - name: cdp_transform
+    id: blur
+    enabled: true
+    params:
+      effect: blur.blur
+      values_json: '{"windows": 24}'

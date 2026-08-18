@@ -117,6 +117,10 @@ get_output_dir() {
 }
 
 get_previous_step_output() {
+    # The `steps` map is keyed on each step's EFFECTIVE id (its `id:`, defaulting to
+    # the component name), so the argument is that step's id — the same key the engine
+    # wrote the record under. For chains without explicit ids, id == component name, so
+    # existing callers are unchanged.
     local step_name="$1"
     get_context_value "steps.${step_name}.output"
 }
