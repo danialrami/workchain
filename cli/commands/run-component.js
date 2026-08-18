@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSy
 import { resolveWorkchainRoot, resolveComponentDir } from '../lib/workchain.js';
 import { spawnComponentScript } from '../lib/engine.js';
 import { formatResult } from '../lib/formatter.js';
+import { resolveCdpLibrary, buildCatalog, formatCatalogHuman, CdpCatalogError } from '../lib/cdp-catalog.js';
 import { CliError, validateInputFile } from '../lib/utils.js';
 
 const SUPPORTED_AUDIO_EXTENSIONS = ['mp3', 'wav', 'aiff', 'aif', 'flac', 'm4a', 'ogg', 'mp4', 'm4a', 'wma'];
@@ -20,6 +21,14 @@ export async function runComponentCommand(componentName, input, options, command
 
   try {
     if (!componentName) throw new CliError(2, 'Component name is required');
+
+    // --list-effects: print the cdp-wasm catalog instead of processing an input.
+    // The `<input>` positional is optional when this flag is present (see bin/workchain.js).
+    if (options.listEffects) {
+      await listEffectCatalog(componentName, options, { json });
+      return;
+    }
+
     if (!input) throw new CliError(2, 'Input file or directory is required');
 
     const workchainRoot = resolveWorkchainRoot();
@@ -333,6 +342,48 @@ exit $__wc_rc
   }
 
   return { exitCode, contextData };
+}
+
+/**
+ * `run-component <component> --list-effects`: print the cdp-wasm effect catalog
+ * (id, group, output count, per-parameter min/max/default) without touching audio.
+ *
+ * The catalog MUST be resolved the same way a real run resolves it — cdp_wasm_dir
+ * param → CDP_WASM_DIR env → node_modules — or a listing and a run could disagree
+ * about which effect ids exist. The resolution + formatting logic lives in
+ * cli/lib/cdp-catalog.js, which mirrors components/cdp_transform/transform.mjs
+ * loadLib() (unit 02 owns that file; this is the mirror, not a second copy of truth).
+ */
+async function listEffectCatalog(componentName, options, { json }) {
+  const workchainRoot = resolveWorkchainRoot();
+  resolveComponentDir(componentName, workchainRoot); // fail early on unknown component names
+
+  // The cdp_wasm_dir param (via --params-json) outranks the env, mirroring run.sh's
+  // `cdp_wasm_dir=$(get_param "cdp_wasm_dir" "${CDP_WASM_DIR:-}")`. Invalid JSON is a
+  // clean error, same as the run path (buildStepConfig).
+  let cdpWasmDir = null;
+  if (options.paramsJson) {
+    let parsed;
+    try {
+      parsed = JSON.parse(options.paramsJson);
+    } catch (e) {
+      throw new CliError(2, `Invalid JSON in --params-json: ${e.message}`);
+    }
+    if (parsed && typeof parsed === 'object' && typeof parsed.cdp_wasm_dir === 'string' && parsed.cdp_wasm_dir) {
+      cdpWasmDir = parsed.cdp_wasm_dir;
+    }
+  }
+
+  let resolved;
+  try {
+    resolved = await resolveCdpLibrary({ cdpWasmDir });
+  } catch (err) {
+    if (err instanceof CdpCatalogError) throw new CliError(1, err.message);
+    throw err;
+  }
+
+  const catalog = buildCatalog(resolved, { component: componentName });
+  console.log(json ? JSON.stringify(catalog, null, 2) : formatCatalogHuman(catalog));
 }
 
 /**
