@@ -1,0 +1,17 @@
+{
+  "name": "@lufs-audio/workchain-x402-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Recordable x402 MCP buyer for the verified LUFS Workchain demo",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@x402/evm": "2.23.0",
+    "@x402/mcp": "2.23.0",
+    "dotenv": "17.4.2",
+    "viem": "2.55.19"
+  }
+}

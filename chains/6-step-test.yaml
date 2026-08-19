@@ -1,0 +1,37 @@
+# 6-Step Chain Test
+
+name: "6-Step Test Chain"
+description: "Test chain with 6 steps to verify arbitrary length support"
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  test_param: "6-step-test"
+
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+
+  - name: artwork_01
+    enabled: true
+    params:
+      saturation: 0.5
+      width: 1000
+      height: 1000
+
+  - name: canvas_01
+    enabled: true
+    params:
+      loop_count: 8
+
+  - name: catalog
+    enabled: true
+    params: {}
+
+  - name: audio_benchmark
+    enabled: true
+    params:
+      checks: ["format", "loudness", "dc_offset"]

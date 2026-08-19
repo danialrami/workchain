@@ -1,0 +1,46 @@
+# Test Chain: V1 Replication
+# Replicates the original v1 LUFS Workchain functionality:
+# - Audio normalization
+# - Audio protection (perturbation)
+# - Asset generation (artwork, canvas)
+# - Catalog generation
+
+name: "Test: V1 Replication"
+description: "Replicates original v1 LUFS Workchain functionality"
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  lufs_target: -14
+  protection_strength: 0.4
+  saturation: 0.5
+
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+      lra: 7
+      true_peak: -1.5
+
+  - name: protection
+    enabled: true
+    params:
+      strength: 0.4
+
+  - name: artwork_01
+    enabled: true
+    params:
+      saturation: 0.5
+      width: 1000
+      height: 1000
+
+  - name: canvas_01
+    enabled: true
+    params:
+      loop_count: 8
+
+  - name: catalog
+    enabled: true
+    params: {}

@@ -1,0 +1,78 @@
+name: artwork_01
+description: "Album artwork generation from audio spectrogram using jdenticon"
+version: "1.1"
+
+type: image
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: image
+
+params_schema:
+  saturation:
+    type: number
+    default: 0.5
+    description: "Spectrogram saturation (0.0-2.0)"
+    range:
+      min: 0.0
+      max: 2.0
+  width:
+    type: number
+    default: 1000
+    description: "Output image width in pixels"
+  height:
+    type: number
+    default: 1000
+    description: "Output image height in pixels"
+
+# Outputs Schema (version 1.0)
+outputs:
+  schema_version: "1.0"
+  description: "Album artwork and component layers"
+  items:
+    - name: primary_output
+      type: file
+      description: "Generated album artwork PNG"
+      required: true
+      mime_type: "image/png"
+      path_template: "artwork/{input_name}_artwork.png"
+
+    - name: components
+      type: directory
+      description: "Artwork component layers directory"
+      required: false
+      path_template: "artwork/components"
+
+# Inbound contract (verified IN) — heavy component. Uses the project uv venv (repo-root .venv,
+# created by `uv sync`) for the scientific stack, and the root jdenticon node package. Enforced
+# before run.sh by lib/workchain_preflight.py (migrated from the legacy python_packages/node_packages
+# keys, which the preflight does not read).
+requirements:
+  commands:
+    - python3
+    - node
+  python:
+    venv: "../../.venv"
+    python_version: ">=3.10"
+    packages:
+      - { import: "numpy" }
+      - { import: "scipy" }
+      - { import: "matplotlib" }
+    provision: "uv sync   (run from the repo root; creates .venv)"
+  node:
+    packages:
+      - { require: "jdenticon" }
+
+# Outbound contract (verified OUT). The artwork PNG must be produced and non-empty.
+# (A future `image_valid` primitive could additionally assert decodable image + dimensions.)
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty]

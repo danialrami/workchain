@@ -1,0 +1,88 @@
+# Component Definition — acoustic_encode
+# Encode a short text payload (a POINTER: URL, lufs-<hex> catalog number, pairing
+# token) into a WAV that survives over-the-air (speaker → air → microphone).
+# Wraps the @lufs/audioqr CLI (ggwave: multi-FSK + Reed-Solomon, USE_DSS).
+
+name: acoustic_encode
+description: "Encode a short text pointer into an over-the-air audio-QR waveform (ggwave via @lufs/audioqr)"
+version: "1.0"
+
+# Generator component: its payload is a PARAM, not the chain's audio input. It does
+# not consume the incoming audio file — it produces a new one. input_types is kept
+# permissive so it can sit anywhere in a chain.
+type: audio
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+output_type: audio
+
+params_schema:
+  text:
+    type: string
+    default: ""
+    description: "The payload to encode. Keep it short — a pointer, not a file. Empty fails honestly."
+  protocol:
+    type: string
+    default: "audible-fast"
+    description: "ggwave protocol: audible-{normal,fast,fastest} or ultrasound-{normal,fast,fastest}"
+  volume:
+    type: number
+    default: 15
+    description: "Transmit volume 1-100"
+    range:
+      min: 1
+      max: 100
+  sample_rate:
+    type: number
+    default: 48000
+    description: "Output sample rate (Hz)"
+
+outputs:
+  schema_version: "1.0"
+  description: "Over-the-air audio-QR waveform plus a round-trip-verified metadata sidecar"
+  items:
+    - name: primary_output
+      type: file
+      description: "The encoded waveform (play this through a speaker)"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "output/{input_name}_beacon.wav"
+    - name: metadata
+      type: json
+      description: "Round-trip proof: source_text, decoded_text, roundtrip_ok, protocol, duration"
+      required: false
+      path_template: "logs/acoustic_encode.json"
+
+# ── Inbound contract (verified IN) ──────────────────────────────────────────────
+# audioqr is a Node CLI. Only chains that use an acoustic component need it; the rest
+# of Workchain stays stdlib+ffmpeg. Override the binary with WORKCHAIN_AUDIOQR_BIN.
+requirements:
+  commands:
+    - audioqr
+
+# ── Outbound contract (verified OUT) ────────────────────────────────────────────
+# The central verifier (lib/workchain_verify.py) confirms the waveform is real audio
+# and that the sidecar records a PASSING round-trip. run.sh additionally FAILS at run
+# time if the produced audio does not decode back to the source text — so a green exit
+# already means "proven decodable", never "exited 0 but wrong".
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]
+    - name: metadata
+      assert: [exists, non_empty, json_valid]
+      json_has: [source_text, decoded_text, roundtrip_ok, protocol]
+  post_conditions:
+    # The enforcer INDEPENDENTLY re-decodes the produced waveform and requires it to
+    # equal the source text — the strongest form of the contract (does not trust the
+    # component's own sidecar). Implemented in lib/workchain_verify.py.
+    - id: survives_over_the_air
+      check: acoustic_roundtrip
+      output: primary_output
+      target_param: text

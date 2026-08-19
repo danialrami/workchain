@@ -1,0 +1,53 @@
+name: probe
+description: "Deterministic probe for the archive: content SHA-256 + container/stream facts + loudness for one audio file. No heavy deps (ffprobe/ffmpeg + stdlib). Measures from a file ffmpeg accepts — the original, or a stdlib-salvaged copy for WAVs whose chunk table ffmpeg refuses — and records which in `decoder`. A probe it cannot measure FAILS; it never writes a null record."
+version: "0.2"
+
+type: data
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema: {}
+
+outputs:
+  schema_version: "1.0"
+  description: "Probe sidecar consumed by the archive index"
+  items:
+    - name: probe
+      type: json
+      description: "Content hash + probe facts + loudness + decode provenance"
+      required: true
+      path_template: "archive/{input_name}.probe.json"
+
+requirements:
+  commands: [ffprobe, ffmpeg, python3]
+
+# schema_version 1.1 adds post_conditions. The 1.0 contract asserted only that the KEYS were
+# present, which a record of five nulls satisfies perfectly — and did, for months, on every
+# WAV ffmpeg refused to open. Key-presence is not correctness.
+verify:
+  schema_version: "1.1"
+  outputs:
+    - name: probe
+      assert: [exists, non_empty, json_valid]
+      json_has: [content_sha256, duration_s, samplerate, channels, peak_dbfs, decoder]
+  post_conditions:
+    - id: probe_facts_plausible
+      check: json_fields_within
+      output: probe
+      require:
+        # Real audio terms, not arbitrary numbers: a file with no duration, no sample rate or
+        # no channel count was not measured, whatever the exit code said.
+        - "content_sha256 is non_empty"
+        - "duration_s > 0"
+        - "samplerate >= 2000"
+        - "samplerate <= 768000"
+        - "channels >= 1"
+        - "channels <= 64"
+        # -144 dBFS is the 24-bit floor (digital silence); float WAVs can legitimately
+        # exceed 0 dBFS, so the ceiling is generous rather than 0.
+        - "peak_dbfs >= -144"
+        - "peak_dbfs <= 60"
+        - "codec is non_empty"
+        - "container is non_empty"
+        - "decoder one_of ffmpeg|salvaged-riff"

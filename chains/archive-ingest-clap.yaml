@@ -1,0 +1,27 @@
+name: "Archive Ingest (CLAP)"
+description: "Same as archive-ingest but with the production LAION-CLAP embedder (embed_clap) in place of the melstats-v0 placeholder. Requires embed_clap/.venv (run its provision.sh on the ingest host)."
+version: "0.1"
+engine_version: "2.0"
+
+globals:
+  scope: "archive"
+
+steps:
+  - name: probe
+    enabled: true
+    params: {}
+  - name: features
+    enabled: true
+    params: {}
+  - name: hook
+    enabled: true
+    params:
+      hook_seconds: 3
+  - name: embed_clap
+    enabled: true
+    params:
+      model: "laion-clap-630k"
+  - name: archive_index
+    enabled: true
+    params:
+      scope: "archive"

@@ -1,0 +1,42 @@
+name: hook
+description: "Pre-render the instant-audition artifacts: a 3s hook clip at the loudest window + a waveform PNG. This is what makes the archive scan sound-first and <50ms — you audition hooks, not full takes."
+version: "0.1"
+
+type: audio
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema:
+  hook_seconds:
+    type: number
+    default: 3
+    description: "Hook clip length in seconds"
+
+outputs:
+  schema_version: "1.0"
+  description: "Hook clip + waveform PNG"
+  items:
+    - name: hook_clip
+      type: file
+      description: "Loudest-window preview clip"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "archive/{input_name}.hook.wav"
+    - name: waveform
+      type: file
+      description: "Waveform thumbnail"
+      required: true
+      mime_type: "image/png"
+      path_template: "archive/{input_name}.waveform.png"
+
+requirements:
+  commands: [ffmpeg, python3]
+
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: hook_clip
+      assert: [exists, non_empty, audio_valid]
+    - name: waveform
+      assert: [exists, non_empty]

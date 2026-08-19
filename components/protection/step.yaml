@@ -1,0 +1,75 @@
+name: protection
+description: "Audio perturbation for AI-training protection (psychoacoustic). SLATED FOR REWRITE as the workchain's first API-calling component (Artyshield.ai) — see docs/product/workchain/07-roadmap; the current local DSP approach does not reliably defeat modern training."
+version: "1.1"
+
+type: audio
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: audio
+
+params_schema:
+  strength:
+    type: number
+    default: 0.4
+    description: "Protection strength (0.01-1.0)"
+    range:
+      min: 0.01
+      max: 1.0
+
+outputs:
+  schema_version: "1.0"
+  description: "Protected audio and analysis report"
+  items:
+    - name: protected_audio
+      type: file
+      description: "Protected audio file"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "protected/{input_name}_protected.{input_ext}"
+
+    - name: protection_report
+      type: file
+      description: "Protection analysis report"
+      required: false
+      mime_type: "text/html"
+      path_template: "protected/protection_report.html"
+
+# Inbound contract (verified IN) — current DSP implementation. Uses the project uv venv
+# (repo-root .venv) for numpy/scipy/soundfile. Enforced before run.sh by lib/workchain_preflight.py
+# (migrated from the legacy python_packages key).
+#
+# ROADMAP: the Artyshield.ai rewrite will make this the first API component — its inbound
+# contract becomes `env: [ARTYSHIELD_API_KEY]` + an HTTP client (curl/requests), and it drops
+# the heavy DSP stack. Not wired yet (no creds), so the current contract reflects today's code.
+requirements:
+  commands:
+    - python3
+  python:
+    venv: "../../.venv"
+    python_version: ">=3.10"
+    packages:
+      - { import: "numpy" }
+      - { import: "scipy" }
+      - { import: "soundfile" }
+    provision: "uv sync   (run from the repo root; creates .venv)"
+
+# Outbound contract (verified OUT). Protection perturbs samples but must return valid audio of
+# the same duration — a clean metamorphic invariant (the API rewrite keeps the same contract).
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: protected_audio
+      assert: [exists, non_empty, audio_valid]
+  post_conditions:
+    - id: duration_preserved
+      check: audio_duration_matches
+      outputs: [protected_audio]
+      tolerance_s: 0.2
+      description: "Protected audio must preserve the source duration (±0.2s)."

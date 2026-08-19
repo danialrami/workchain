@@ -1,0 +1,52 @@
+name: features
+description: "Cheap deterministic DSP features (spectral centroid, rms, zcr, brightness) via numpy. bpm/key are declared null in v0 (deferred to librosa/essentia or the sononym warm-start). A failed decode FAILS rather than reporting a zeroed measurement; decoded_duration_s records how much audio was actually measured, and `decoder` records how it was read."
+version: "0.2"
+
+type: data
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema: {}
+
+outputs:
+  schema_version: "1.0"
+  description: "Deterministic feature sidecar"
+  items:
+    - name: features
+      type: json
+      description: "Spectral + level features; bpm/key null in v0"
+      required: true
+      path_template: "archive/{input_name}.features.json"
+
+requirements:
+  commands: [ffmpeg, python3]
+
+# schema_version 1.1 adds post_conditions. Under 1.0 the "insufficient_audio" record
+# (centroid 0.0, rms -120.0, brightness 0.0) passed this contract, so a file ffmpeg had
+# refused was indistinguishable from a file that was merely quiet.
+verify:
+  schema_version: "1.1"
+  outputs:
+    - name: features
+      assert: [exists, non_empty, json_valid]
+      json_has: [spectral_centroid_hz, rms_dbfs, feature_source, decoder, decoded_duration_s]
+  post_conditions:
+    - id: features_measured_not_assumed
+      check: json_fields_within
+      output: features
+      require:
+        # The load-bearing one: you cannot measure features from zero decoded samples.
+        - "decoded_duration_s > 0"
+        - "feature_source is non_empty"
+        - "decoder one_of ffmpeg|salvaged-riff"
+        - "rms_dbfs >= -144"
+        - "rms_dbfs <= 24"
+        # Nyquist for the fixed 22050 Hz analysis rate — a centroid outside this is a bug,
+        # not a timbre.
+        - "spectral_centroid_hz >= 0"
+        - "spectral_centroid_hz <= 11025"
+        - "brightness >= 0"
+        - "brightness <= 1"
+        - "zero_crossing_rate >= 0"
+        - "zero_crossing_rate <= 1"

@@ -1,6 +1,104 @@
 {
   "components": [
     {
+      "definition_hash": "sha256:81ef91a8240637976ca0816bdbf4796c95f685cad2601b85dc913260d88ea846",
+      "description": "Decode an over-the-air audio-QR waveform from an audio file back to text (ggwave via @lufs/audioqr)",
+      "dir": "components/acoustic_decode",
+      "name": "acoustic_decode",
+      "params": [
+        "expected"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:1bf0c0ab585e0b9399b5e7efec23d66bc7b7d34e5363acb3ac28388f66ab0b39",
+      "description": "Encode a short text pointer into an over-the-air audio-QR waveform (ggwave via @lufs/audioqr)",
+      "dir": "components/acoustic_encode",
+      "name": "acoustic_encode",
+      "params": [
+        "text",
+        "protocol",
+        "volume",
+        "sample_rate"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output",
+          "metadata"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "survives_over_the_air"
+        ]
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:e2b268118d8ac2c0c07d64d5c48d86cac569ce7cc95a9bb2b8bd9d6976049ab6",
+      "description": "Terminal archive-ingest stage: upsert one fully-analyzed file (probe + features + embedding + hook) into the shared archive index (sqlite; sqlite-vec in prod). Keyed on the full 64-hex content hash \u2014 never the 8-hex display id. Idempotent: re-running the same file is a no-op update.",
+      "dir": "components/archive_index",
+      "name": "archive_index",
+      "params": [
+        "scope"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "index_record"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "0.1"
+    },
+    {
+      "definition_hash": "sha256:ef48cd9733e798dd561efdcc05a67cf834695a92f77f9f4c94639caf16dcc359",
+      "description": "Album artwork generation from audio spectrogram using jdenticon",
+      "dir": "components/artwork_01",
+      "name": "artwork_01",
+      "params": [
+        "saturation",
+        "width",
+        "height"
+      ],
+      "requirements": [
+        "commands",
+        "python",
+        "node"
+      ],
+      "tier": "heavy",
+      "type": "image",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.1"
+    },
+    {
       "definition_hash": "sha256:fd2249f1ed9ed212ad42c89816b437fe2526c2445e58ebbd981dfbcc306a787d",
       "description": "Audio quality analysis benchmark suite (format, loudness, DC offset, noise floor, spectral, phase, dynamics)",
       "dir": "components/audio_benchmark",
@@ -23,6 +121,49 @@
         "post_conditions": []
       },
       "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:61a053660c3b42dbe2edff6ca0935f08de8588b4729608b48d7445026acf914a",
+      "description": "Spotify Canvas generation from album artwork",
+      "dir": "components/canvas_01",
+      "name": "canvas_01",
+      "params": [
+        "loop_count"
+      ],
+      "requirements": [
+        "commands",
+        "python"
+      ],
+      "tier": "heavy",
+      "type": "image",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:593827676b568ccea6e4199c7b03f8b401efbc31be07dd1c9b557a9a753cf92d",
+      "description": "Generate catalog information and metadata for processed audio",
+      "dir": "components/catalog",
+      "name": "catalog",
+      "params": [],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.1"
     },
     {
       "definition_hash": "sha256:89c6a68a2e6a94ce94dc0d9dc136cf38ea6e2ad18020f0d727542bf29f8ab833",
@@ -86,6 +227,80 @@
       "version": "1.0"
     },
     {
+      "definition_hash": "sha256:d8a08108b76a818cf54aafa1dd9a1d25e189a2b78d9481f2460f94da798b9c4c",
+      "description": "Audio embedding behind a stable vector contract (input: audio; output: L2-normed float32 vector of declared dim). v0 ships 'melstats-v0' \u2014 a dependency-light log-mel band-energy vector (numpy) that stands in for LAION-CLAP/MuQ-MuLan without changing the contract. Swap the model, keep the contract.",
+      "dir": "components/embed",
+      "name": "embed",
+      "params": [
+        "model"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "embedding"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "0.1"
+    },
+    {
+      "definition_hash": "sha256:fb9a3398c564d72bdf43c9eecc5e220efccf3d27f83f30d8488305fe5eb2f9d4",
+      "description": "Production audio embedder: LAION-CLAP (630k-audioset-best) behind the SAME vector contract as `embed` (audio -> L2-normed float32 vector). TWO BACKENDS, ONE CONTRACT: `local` loads the ~2GB checkpoint in this component's own .venv on every invocation (correct, but 259k files means 259k model loads); `remote` ships decoded 48k mono PCM to a resident-model serve-embed endpoint and needs NO venv, no torch, no checkpoint. Every record stamps `served_by` so a degradation can never hide. Swap to MuQ-MuLan by changing `model`.",
+      "dir": "components/embed_clap",
+      "name": "embed_clap",
+      "params": [
+        "model",
+        "backend",
+        "endpoint",
+        "timeout_s",
+        "retries"
+      ],
+      "requirements": [
+        "commands",
+        "python"
+      ],
+      "tier": "heavy",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "embedding"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "embedding_wellformed",
+          "decode_provenance_recorded"
+        ]
+      },
+      "version": "0.2"
+    },
+    {
+      "definition_hash": "sha256:a56a9457dbaa2f0880a4130d8fa4878db506eedf835c657e9ac2f0fbb32d08de",
+      "description": "Cheap deterministic DSP features (spectral centroid, rms, zcr, brightness) via numpy. bpm/key are declared null in v0 (deferred to librosa/essentia or the sononym warm-start). A failed decode FAILS rather than reporting a zeroed measurement; decoded_duration_s records how much audio was actually measured, and `decoder` records how it was read.",
+      "dir": "components/features",
+      "name": "features",
+      "params": [],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "features"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "features_measured_not_assumed"
+        ]
+      },
+      "version": "0.2"
+    },
+    {
       "definition_hash": "sha256:0fc889a9b2d11d99b9d40a559414f91d03821b62dcfe35b9528d7552d61f6326",
       "description": "Audio format conversion using FFmpeg (powered by audioconv-cli logic)",
       "dir": "components/format_conversion",
@@ -113,6 +328,50 @@
         ]
       },
       "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:3e5e47196e70beec567b09919afc8439c89e7f66b7883af0da93d73c079d7a63",
+      "description": "FX with parameters",
+      "dir": "components/fx_with_params",
+      "name": "fx_with_params",
+      "params": [
+        "preset",
+        "strength"
+      ],
+      "requirements": [],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:23b4327fc5a5d02dd2ed41b427bd6867fbd312d57bd08d54e48416043f2c91d2",
+      "description": "Pre-render the instant-audition artifacts: a 3s hook clip at the loudest window + a waveform PNG. This is what makes the archive scan sound-first and <50ms \u2014 you audition hooks, not full takes.",
+      "dir": "components/hook",
+      "name": "hook",
+      "params": [
+        "hook_seconds"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "hook_clip",
+          "waveform"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "0.1"
     },
     {
       "definition_hash": "sha256:4c00feefec38b37c39b76f2523c642cf6d9fa0609a19977741a5cfe5a9e45cbd",
@@ -169,6 +428,106 @@
         ]
       },
       "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:2efe0044f82c51dfcab13aadd6d5a5e0f18efa9611fe12a37e89a5d88a8bbc0b",
+      "description": "Deterministic probe for the archive: content SHA-256 + container/stream facts + loudness for one audio file. No heavy deps (ffprobe/ffmpeg + stdlib). Measures from a file ffmpeg accepts \u2014 the original, or a stdlib-salvaged copy for WAVs whose chunk table ffmpeg refuses \u2014 and records which in `decoder`. A probe it cannot measure FAILS; it never writes a null record.",
+      "dir": "components/probe",
+      "name": "probe",
+      "params": [],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "probe"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "probe_facts_plausible"
+        ]
+      },
+      "version": "0.2"
+    },
+    {
+      "definition_hash": "sha256:bcd53e5b415b1d48ae883bfccf141ade2f18a5d6c5ea85d6deb589d217c8c983",
+      "description": "Audio perturbation for AI-training protection (psychoacoustic). SLATED FOR REWRITE as the workchain's first API-calling component (Artyshield.ai) \u2014 see docs/product/workchain/07-roadmap; the current local DSP approach does not reliably defeat modern training.",
+      "dir": "components/protection",
+      "name": "protection",
+      "params": [
+        "strength"
+      ],
+      "requirements": [
+        "commands",
+        "python"
+      ],
+      "tier": "heavy",
+      "type": "audio",
+      "verify": {
+        "asserts": [
+          "protected_audio"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "duration_preserved"
+        ]
+      },
+      "version": "1.1"
+    },
+    {
+      "definition_hash": "sha256:6cbcca05243b01ff416ab3f456c5b085ac07c166b32b27783003eaf0bc642bd5",
+      "description": "Mint a verifiable, provenanced seed from a preamp noise-floor recording",
+      "dir": "components/seed",
+      "name": "seed",
+      "params": [
+        "lsb_bits",
+        "floor_max_dbfs",
+        "floor_min_dbfs",
+        "min_duration_s",
+        "min_entropy_bits",
+        "jitter",
+        "sign",
+        "note"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "data",
+      "verify": {
+        "asserts": [
+          "primary_output"
+        ],
+        "has_contract": true,
+        "post_conditions": [
+          "seed_record_verifies"
+        ]
+      },
+      "version": "1.0"
+    },
+    {
+      "definition_hash": "sha256:49bc58d47318bf51b431da5b645da18842cb6d7a5344ff16d059dc88110a2afe",
+      "description": "Prerequisite checker - Python, uv, ffmpeg, npm",
+      "dir": "components/setup",
+      "name": "setup",
+      "params": [
+        "check_only"
+      ],
+      "requirements": [
+        "commands"
+      ],
+      "tier": "light",
+      "type": "system",
+      "verify": {
+        "asserts": [
+          "environment"
+        ],
+        "has_contract": true,
+        "post_conditions": []
+      },
+      "version": "1.0"
     },
     {
       "definition_hash": "sha256:f50837bbbf4e22d5267caa34cc2bbc8c8a595d6a35a32eb32441295eab880022",

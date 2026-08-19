@@ -17,6 +17,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workchain-doc-check.XXXXXX")"
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT
+
 PASS=0
 FAIL=0
 skip() { echo "  skip  $*"; }
@@ -29,9 +33,8 @@ LLMS_FULL="${2:-llms-full.txt}"
 
 # ── gather all docs files ────────────────────────────────────────────────────
 DOCS_FILES=()
-while IFS= read -r -d '' f; do DOCS_FILES+=("$f"); done < <(
-    find docs -name '*.md' -not -path '*/node_modules/*' -print0 2>/dev/null | LC_ALL=C sort -z
-)
+find docs -name '*.md' -not -path '*/node_modules/*' -print0 2>/dev/null | LC_ALL=C sort -z > "$TMP_DIR/docs.list"
+while IFS= read -r -d '' f; do DOCS_FILES+=("$f"); done < "$TMP_DIR/docs.list"
 
 # ── 1. Internal link resolution ──────────────────────────────────────────────
 say() { echo "1. Checking internal links"; say() { :; }; say; }
@@ -39,6 +42,8 @@ LINK_ERRS=()
 LINK_COUNT=0
 for f in "${DOCS_FILES[@]}" "$CHECK_LLMS_TXT"; do
     [[ -f "$f" ]] || continue
+    # Portable extraction (POSIX ERE; no /dev/fd or process substitution): capture ](target).
+    grep -oE ']\([^)]+' "$f" 2>/dev/null | sed 's/^]*(//' > "$TMP_DIR/links" || true
     while IFS= read -r link; do
         # Resolve relative markdown links and reference paths.
         # Skip external, mailto, and fragment-only links.
@@ -64,21 +69,22 @@ for f in "${DOCS_FILES[@]}" "$CHECK_LLMS_TXT"; do
             LINK_ERRS+=("$f: broken link -> $link")
         fi
         ((LINK_COUNT++))
-    # Portable extraction (POSIX ERE; BSD grep has no -P): capture ](target)
-    done < <(grep -oE ']\([^)]+' "$f" 2>/dev/null | sed 's/^]*(//' || true)
+    done < "$TMP_DIR/links"
+
 done
 if [[ ${#LINK_ERRS[@]} -eq 0 ]]; then ok "all internal links resolve (${#DOCS_FILES[@]} files, $LINK_COUNT links checked)"; else bad "broken links: ${LINK_ERRS[*]}"; fi
 
 # ── 2. llms.txt path existence ───────────────────────────────────────────────
 say() { echo "2. Checking llms.txt paths exist"; say() { :; }; }
 MISSING=()
+# Match BOTH markdown-link syntax [text](path) and bare paths (list items, prose):
+grep -oE 'docs/[a-zA-Z0-9_/.-]+\.(md|json|sh|yaml|yml)' "$CHECK_LLMS_TXT" 2>/dev/null | LC_ALL=C sort -u > "$TMP_DIR/llms-paths" || true
 while IFS= read -r ref; do
     path="${ref%%\#*}"
     if [[ -n "$path" && ! -f "$path" ]]; then
         MISSING+=("$path")
     fi
-# Match BOTH markdown-link syntax [text](path) and bare paths (list items, prose):
-done < <(grep -oE 'docs/[a-zA-Z0-9_/.-]+\.(md|json|sh|yaml|yml)' "$CHECK_LLMS_TXT" 2>/dev/null | LC_ALL=C sort -u || true)
+done < "$TMP_DIR/llms-paths"
 if [[ ${#MISSING[@]} -eq 0 ]]; then ok "all llms.txt paths exist"; else bad "missing paths in llms.txt: ${MISSING[*]}"; fi
 
 # ── 3. llms-full.txt freshness ──────────────────────────────────────────────
@@ -92,7 +98,12 @@ if [[ -f "$LLMS_FULL" ]]; then
     for f in "${DOCS_FILES[@]}"; do
         cat "$f" >> "$TEMP_FULL" && echo >> "$TEMP_FULL"
     done
-    if diff -q "$LLMS_FULL" "$TEMP_FULL" &>/dev/null; then
+    if python3 - "$LLMS_FULL" "$TEMP_FULL" <<'PY'
+import pathlib
+import sys
+sys.exit(0 if pathlib.Path(sys.argv[1]).read_bytes() == pathlib.Path(sys.argv[2]).read_bytes() else 1)
+PY
+    then
         ok "llms-full.txt is current"
     else
         bad "llms-full.txt is stale — regenerate with: llms.txt section order"
@@ -105,6 +116,7 @@ fi
 # ── 4. License consistency ────────────────────────────────────────────────────
 say() { echo "4. Checking license consistency"; say() { :; }; }
 LICENSE_ERRS=()
+grep -rn "License:" README.md AGENTS.md llms.txt docs/ --include="*.md" 2>/dev/null > "$TMP_DIR/license-claims" || true
 while IFS= read -r match; do
     if grep -qiv "Apache|Apache-2.0|ASF|Licensed under the Apache" <<< "$match"; then
         # If it says MIT, BSD, GPL etc, flag it (but NOT if it's quoting Apache)
@@ -112,7 +124,7 @@ while IFS= read -r match; do
             LICENSE_ERRS+=("$match")
         fi
     fi
-done < <(grep -rn "License:" README.md AGENTS.md llms.txt docs/ --include="*.md" 2>/dev/null || true)
+done < "$TMP_DIR/license-claims"
 if [[ ${#LICENSE_ERRS[@]} -eq 0 ]]; then ok "all license claims consistent (Apache-2.0)"; else bad "license inconsistencies: ${LICENSE_ERRS[*]}"; fi
 
 # ── 5. Frontmatter presence ──────────────────────────────────────────────────
@@ -140,7 +152,18 @@ if [[ ${#FM_ERRS[@]} -eq 0 ]]; then ok "all docs pages have required frontmatter
 
 # ── 6. Ghost component references ────────────────────────────────────────────
 say() { echo "6. Checking for ghost references to stripped components"; say() { :; }; }
-GHOSTS=$(grep -rnIl '\bcatalog\b' docs/ llms.txt 2>/dev/null | grep -v -f <(printf 'docs/how-to/author/write-a-verify-block.md\ndocs/reference/contracts/requirements.md\ndocs/reference/contracts/verify-checks.md\ndocs/case-studies/content-hash.md\ndocs/case-studies/cdp-transform.md\ndocs/reference/interfaces/mcp.md\ndocs/README.md\nllms.txt\n') || true)
+cat > "$TMP_DIR/ghost-allowlist" <<'EOF'
+docs/how-to/author/write-a-verify-block.md
+docs/reference/contracts/requirements.md
+docs/reference/contracts/verify-checks.md
+docs/case-studies/content-hash.md
+docs/case-studies/cdp-transform.md
+docs/reference/interfaces/mcp.md
+docs/README.md
+docs/PORTING.md
+llms.txt
+EOF
+GHOSTS=$(grep -rnIl '\bcatalog\b' docs/ llms.txt 2>/dev/null | grep -v -f "$TMP_DIR/ghost-allowlist" || true)
 if [[ -z "$GHOSTS" ]]; then ok "no ghost references to stripped components"; else bad "ghost references (old stripped component names) in: $GHOSTS"; fi
 
 # ── 7. Index completeness (llms.txt covers every docs page) ──────────────────

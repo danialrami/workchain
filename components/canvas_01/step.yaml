@@ -1,0 +1,50 @@
+name: canvas_01
+description: "Spotify Canvas generation from album artwork"
+version: "1.1"
+
+type: image
+input_types:
+  - png
+  - jpg
+  - jpeg
+
+output_type: image
+
+params_schema:
+  loop_count:
+    type: number
+    default: 8
+    description: "Number of frames in the canvas loop"
+
+# Outputs Schema (version 1.0)
+outputs:
+  schema_version: "1.0"
+  description: "Spotify Canvas (animated GIF) and related files"
+  items:
+    - name: primary_output
+      type: file
+      description: "Generated canvas GIF for Spotify"
+      required: true
+      mime_type: "image/gif"
+      path_template: "canvas/{input_name}_canvas.gif"
+    # The canvas directory also contains canvas.mp4 (web) and canvas_static.png (preview).
+
+# Inbound contract (verified IN) — heavy component. Uses the project uv venv (repo-root .venv)
+# for Pillow. Enforced before run.sh by lib/workchain_preflight.py (migrated from the legacy
+# python_packages key).
+requirements:
+  commands:
+    - python3
+  python:
+    venv: "../../.venv"
+    python_version: ">=3.10"
+    packages:
+      - { import: "PIL", dist: "Pillow" }
+    provision: "uv sync   (run from the repo root; creates .venv)"
+
+# Outbound contract (verified OUT). The canvas GIF must be produced and non-empty.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty]

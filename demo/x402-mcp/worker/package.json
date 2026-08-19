@@ -1,0 +1,25 @@
+{
+  "name": "@lufs-audio/workchain-x402-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare MCP payment edge for the verified LUFS Workchain demo",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types worker-configuration.d.ts --include-runtime false",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@x402/evm": "2.23.0",
+    "agents": "0.21.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260819.1",
+    "@types/node": "26.2.0",
+    "typescript": "6.0.3",
+    "wrangler": "4.124.0"
+  }
+}

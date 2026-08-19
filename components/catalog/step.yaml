@@ -1,0 +1,39 @@
+name: catalog
+description: "Generate catalog information and metadata for processed audio"
+version: "1.1"
+
+type: data
+
+params_schema: {}
+
+# Outputs Schema (version 1.0)
+outputs:
+  schema_version: "1.0"
+  description: "Catalog information text file and metadata"
+  items:
+    - name: primary_output
+      type: file
+      description: "Catalog information text file"
+      required: true
+      mime_type: "text/plain"
+      path_template: "catalog/catalog_info.txt"
+
+    - name: metadata
+      type: json
+      description: "Catalog number and hash metadata"
+      required: false
+      path_template: "catalog/metadata.json"
+
+# Inbound contract (verified IN). Content hashing uses python3 hashlib (stdlib) — no heavy deps.
+requirements:
+  commands:
+    - python3
+
+# Outbound contract (verified OUT). The catalog info file must be produced and non-empty.
+# `metadata` is optional, so it is intentionally not asserted (avoids a false failure when
+# a run doesn't emit it).
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty]

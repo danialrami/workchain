@@ -1,0 +1,13 @@
+# Test Chain: Setup Only
+# Tests the setup component
+
+name: "Test: Setup Only"
+description: "Tests environment setup component"
+version: "1.0"
+engine_version: "2.0"
+
+steps:
+  - name: setup
+    enabled: true
+    params:
+      check_only: true

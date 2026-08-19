@@ -1,0 +1,34 @@
+name: embed
+description: "Audio embedding behind a stable vector contract (input: audio; output: L2-normed float32 vector of declared dim). v0 ships 'melstats-v0' — a dependency-light log-mel band-energy vector (numpy) that stands in for LAION-CLAP/MuQ-MuLan without changing the contract. Swap the model, keep the contract."
+version: "0.1"
+
+type: data
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema:
+  model:
+    type: string
+    default: "melstats-v0"
+    description: "Embedding model id (melstats-v0 placeholder; laion-clap / muq-mulan in prod)"
+
+outputs:
+  schema_version: "1.0"
+  description: "Embedding vector sidecar"
+  items:
+    - name: embedding
+      type: json
+      description: "L2-normed float32 vector + model id + dim"
+      required: true
+      path_template: "archive/{input_name}.embedding.json"
+
+requirements:
+  commands: [ffmpeg, python3]
+
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: embedding
+      assert: [exists, non_empty, json_valid]
+      json_has: [model, dim, vector, l2norm]

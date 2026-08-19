@@ -1,0 +1,92 @@
+name: embed_clap
+description: "Production audio embedder: LAION-CLAP (630k-audioset-best) behind the SAME vector contract as `embed` (audio -> L2-normed float32 vector). TWO BACKENDS, ONE CONTRACT: `local` loads the ~2GB checkpoint in this component's own .venv on every invocation (correct, but 259k files means 259k model loads); `remote` ships decoded 48k mono PCM to a resident-model serve-embed endpoint and needs NO venv, no torch, no checkpoint. Every record stamps `served_by` so a degradation can never hide. Swap to MuQ-MuLan by changing `model`."
+version: "0.2"
+
+type: data
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema:
+  model:
+    type: string
+    default: "laion-clap-630k"
+    description: "laion-clap-630k (music-recommended ckpt) | muq-mulan (A/B)"
+  backend:
+    type: string
+    default: "local"
+    description: "local (in-process .venv checkpoint; default for back-compat) | remote (POST decoded PCM to a serve-embed endpoint — no venv required) | auto (remote, falling back to local LOUDLY; the record always states which one served it)"
+  endpoint:
+    type: string
+    default: ""
+    description: "serve-embed base URL for backend remote|auto, e.g. http://100.x.y.z:8770 or http://127.0.0.1:8770. Empty falls back to $EMBED_CLAP_ENDPOINT. backend=remote with no endpoint is an honest failure, never a silent downgrade to local."
+  timeout_s:
+    type: number
+    default: 120
+    description: "Per-request timeout for the remote backend (seconds)"
+  retries:
+    type: number
+    default: 2
+    description: "Retries on connection error / 5xx for the remote backend. 4xx is never retried — a contract error is not transient."
+
+outputs:
+  # 1.0 -> 1.1: the record gains additive provenance (served_by, endpoint, model_rev,
+  # precision, device). Purely additive, so 1.0 consumers keep working.
+  schema_version: "1.1"
+  description: "CLAP embedding vector sidecar (same shape as the melstats embed, plus provenance)"
+  items:
+    - name: embedding
+      type: json
+      description: "L2-normed float32 vector + model id + dim (512 for LAION-CLAP) + which backend served it"
+      required: true
+      path_template: "archive/{input_name}.embedding.json"
+
+# Heavy ONLY on the local backend. The `when:` guard is why `remote` does not demand a
+# 2GB venv on a host that will never load a checkpoint. Guards fail CLOSED: if the backend
+# param cannot be resolved, the venv is still required, so an ambiguous config can never
+# quietly weaken a dependency contract. Enforced by lib/workchain_preflight.py BEFORE
+# run.sh, so an unprovisioned local backend fails HONESTLY (never a fake success).
+requirements:
+  schema_version: "1.1"
+  commands: [ffmpeg, python3]
+  python:
+    when:
+      backend: [local, auto]
+    venv: ".venv"
+    python_version: ">=3.10"
+    packages:
+      - { import: "laion_clap", dist: "laion-clap" }
+      - { import: "torch", dist: "torch" }
+      - { import: "numpy", dist: "numpy", version: ">=1.26" }
+      - { import: "soundfile", dist: "soundfile" }
+    provision: "bash provision.sh"
+
+verify:
+  schema_version: "1.1"
+  outputs:
+    - name: embedding
+      assert: [exists, non_empty, json_valid]
+      json_has: [model, dim, vector, l2norm, served_by, decoder]
+  post_conditions:
+    # Structural asserts prove the keys exist. This proves the VECTOR is real: right
+    # length, finite, not all zeros, and unit-norm when RECOMPUTED from the vector rather
+    # than read from the l2norm field. A component that writes a valid-looking JSON
+    # containing garbage is precisely the "exited 0 but wrong" failure this project
+    # refuses to ship — and on the remote backend the producer is a service we did not run.
+    #
+    # NB: expect_dim is model-specific. Swapping `model` to muq-mulan means updating this
+    # number. That explicitness is the feature — the contract should not silently accept a
+    # different embedding space.
+    - id: embedding_wellformed
+      check: embedding_wellformed
+      output: embedding
+      expect_dim: 512
+      l2_tolerance: 0.001
+    # A vector measured from a salvaged container is fine; a vector measured from an
+    # unrecorded decode path is not. Provenance is the whole reason served_by exists.
+    - id: decode_provenance_recorded
+      check: json_fields_within
+      output: embedding
+      require:
+        - "decoder one_of ffmpeg|salvaged-riff"
+        - "served_by is non_empty"

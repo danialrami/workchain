@@ -1,0 +1,6 @@
+# Never commit .dev.vars. Copy this file to .dev.vars for local Wrangler development.
+MCP_ADDRESS=0x0000000000000000000000000000000000000000
+WORKCHAIN_ORIGIN_URL=http://127.0.0.1:8788
+WORKCHAIN_BACKEND_TOKEN=
+X402_FACILITATOR_URL=https://x402.org/facilitator
+X402_NETWORK=eip155:84532

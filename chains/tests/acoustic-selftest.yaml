@@ -1,0 +1,9 @@
+name: acoustic-selftest
+version: "1.0"
+steps:
+  - name: acoustic_encode
+    params:
+      text: "https://catalog.lufs.audio/lufs-1a2b3c4d"
+      protocol: audible-fast
+  - name: acoustic_decode
+    params: { expected: "https://catalog.lufs.audio/lufs-1a2b3c4d" }

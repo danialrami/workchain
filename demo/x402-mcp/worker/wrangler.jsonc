@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lufs-workchain-x402",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WorkchainMCP",
+        "class_name": "WorkchainMCP"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WorkchainMCP"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "X402_FACILITATOR_URL": "https://x402.org/facilitator",
+    "X402_NETWORK": "eip155:8453"
+  }
+}

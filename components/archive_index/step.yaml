@@ -1,0 +1,34 @@
+name: archive_index
+description: "Terminal archive-ingest stage: upsert one fully-analyzed file (probe + features + embedding + hook) into the shared archive index (sqlite; sqlite-vec in prod). Keyed on the full 64-hex content hash — never the 8-hex display id. Idempotent: re-running the same file is a no-op update."
+version: "0.1"
+
+type: data
+
+input_types: [wav, mp3, aiff, aif, flac, m4a, ogg]
+output_type: data
+
+params_schema:
+  scope:
+    type: string
+    default: "archive"
+    description: "archive | reference — gates the ADJ surface, not the index"
+
+outputs:
+  schema_version: "1.0"
+  description: "Index upsert record"
+  items:
+    - name: index_record
+      type: json
+      description: "What was written to the index for this file"
+      required: true
+      path_template: "archive/{input_name}.index.json"
+
+requirements:
+  commands: [python3]
+
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: index_record
+      assert: [exists, non_empty, json_valid]
+      json_has: [content_sha256, indexed, db_path, scope]

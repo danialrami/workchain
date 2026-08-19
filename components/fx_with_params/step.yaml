@@ -1,0 +1,51 @@
+name: fx_with_params
+description: "FX with parameters"
+version: "1.0"
+
+type: audio
+
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+
+output_type: audio
+
+params_schema:
+  preset:
+    type: string
+    default: default_preset
+    description: "FX preset"
+  strength:
+    type: number
+    default: 0.5
+    description: "Effect strength"
+    range:
+      min: 0
+      max: 1
+
+# Outputs Schema (version 1.0)
+# Defines what this component produces and how it appears in context.json
+
+outputs:
+  schema_version: "1.0"
+  description: "FX with parameters outputs"
+  items:
+    - name: primary_output
+      type: file
+      description: "Output from fx_with_params"
+      required: true
+      mime_type: "audio/wav"
+      path_template: "{input_name}_fx_with_params.{input_ext}"
+
+# The scaffold must fail until the effect is implemented; this contract is ready for the future
+# implementation and ensures the verifier will check a real file once the sentinel is removed.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, audio_valid]

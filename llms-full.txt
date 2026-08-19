@@ -135,6 +135,22 @@ All three parse and resolve through `lib/workchain_yaml.py`. There is no fourth 
 adding one is the architectural mistake this layout exists to prevent — three interfaces that
 disagree about what a chain means are three different products.
 
+## Base-native x402 demo
+
+`demo/x402-mcp/` is the first hosted-payment slice: a Cloudflare Agents SDK Worker exposes one
+paid `render_verified_demo` MCP tool, defaults to Base mainnet USDC, and calls a separate
+Workchain origin. The origin generates a deterministic fixture, runs
+`chains/base-demo-normalization.yaml`, and returns only when every step's `verification.verified`
+record is true. The Worker never turns a non-zero origin result or an unverified context into a
+paid success.
+
+Run the origin locally with `python3 demo/x402-mcp/origin/src/server.py`. The Worker deployment
+and a screen-shareable buyer live in `demo/x402-mcp/worker/` and `demo/x402-mcp/client/`. Base
+Sepolia is the explicit fallback for the first funded test; the production configuration is
+`eip155:8453`. The repository contains the code and dry-run validation, not a fabricated mainnet
+receipt — deployment still requires a configured Cloudflare account, recipient wallet, reachable
+origin, and an intentional funded buyer.
+
 ## Built for agents, on purpose
 
 `--json` on everything. NDJSON progress on stderr, final JSON on stdout. Schema-validated
@@ -160,6 +176,11 @@ workchain run deliverable-voice in.wav -o ./out --json
 
 Requires Node 18+, Python 3.10+, and ffmpeg. The light components need nothing else — no venv,
 no model weights, no native toolchain.
+
+This fork also carries the verified asset/archive additions from the personal tree: acoustic
+encode/decode, catalog, artwork, Canvas, probing, feature extraction, hook clips, melstats and
+CLAP embeddings, protection, seed, and the archive-ingest chains. Heavy components still declare
+their own runtime requirements; `workchain doctor` is the honest machine-specific report.
 
 Write your own:
 
@@ -365,6 +386,56 @@ Pull requests are **not** currently accepted, on ownership grounds explained in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Bug reports are wanted, especially "it reported success
 and the audio was wrong." Licensing, and what is deliberately not published here, is in
 [`LICENSING.md`](./LICENSING.md).
+
+---
+title: "Porting the personal Workchain tree"
+description: "Provenance, scope, repairs, and exclusions for the personal component port into the current Workchain fork."
+type: explanation
+---
+
+# Porting the personal Workchain tree
+
+This fork keeps the current upstream release as its base and reintroduces the runtime additions
+from the older personal tree as a reviewable, portable layer.
+
+## Base and provenance
+
+- Upstream/fork base: `fb8274676d3ad09c2f15fd8be30ea50b91d1e870`.
+- Personal source snapshot: `487b46526c0938eab87391de3dc862f372e4902c`.
+- The two histories were squashed independently, so this is a tree port rather than a clean
+  commit-range cherry-pick.
+- Overlapping `lib/`, `engine/`, `cli/`, and `mcp-server/` files remain upstream-first. The port
+  does not replace the newer parser, verifier, CLI, or MCP implementation wholesale.
+
+## Ported runtime additions
+
+- Fifteen self-contained components: acoustic encode/decode, archive indexing, artwork, Canvas,
+  catalog, lightweight and CLAP embeddings, feature extraction, hook rendering, probing,
+  protection, seeded randomness, setup, and the parameterized FX scaffold.
+- The personal archive-ingest and asset chains, plus their chain fixtures.
+- Decode-integrity and contract regression tests. The large historical audio fixture is generated
+  by the tests or CI instead of being copied into the public tree.
+- The Base x402 demo: a deterministic verified-normalization chain, a standard-library HTTP
+  origin, a Cloudflare Agents SDK paid MCP Worker, and a recordable x402 buyer.
+
+## Port repairs made while proving the tree
+
+- Fixed three legacy shell-quoting defects in the archive/embed wrappers so every new shell file
+  passes `bash -n`.
+- Replaced an absolute developer checkout path in artwork generation with portable local/global
+  lookup and a deterministic fallback.
+- Kept the FX scaffold honest with an executable not-implemented sentinel; it fails until real
+  processing exists instead of registering a phantom output.
+- Made setup persist `logs/setup.json` and added a real structural verification contract.
+- Removed personal hostnames, local checkout paths, and stale CLI names from the port.
+- Regenerated `components/index.json` from the filesystem registry.
+
+## Deliberate exclusions
+
+Historical private planning/session notes, reference screenshots, the old personal dependency
+lock, and the 61 MB audio fixture are not copied into this public-facing fork. They are not needed
+to run the components or the demo, and carrying them forward would publish stale environment
+assumptions rather than provenance that helps an operator.
 
 # Publishing @lufs-audio/workchain to npm
 
