@@ -115,10 +115,57 @@ def _assert_json_has(path, keys=None, **_):
     return (not missing, "missing keys: %s" % missing if missing else "has %s" % keys)
 
 
+def _assert_video_valid(path, **_):
+    """Decodes as video with a positive duration (ffprobe ground truth). The video
+    analogue of _assert_audio_valid: stream-presence + positive-duration, NOT a
+    frame-deep decode. Deep decode correctness is a numeric post-condition's job
+    (video_duration_matches / video_vmaf_within)."""
+    if not path or not os.path.exists(path):
+        return (False, "missing: %s" % path)
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type:format=duration",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=120,
+        )
+        data = json.loads(out.stdout or "{}")
+        streams = data.get("streams") or []
+        has_video = any(s.get("codec_type") == "video" for s in streams)
+        dur = float((data.get("format") or {}).get("duration") or 0.0)
+        return (has_video and dur > 0.0, "video_stream=%s duration=%.3fs" % (has_video, dur))
+    except Exception as e:
+        return (False, "ffprobe error: %s" % e)
+
+
+def _assert_manifest_valid(path, **_):
+    """Recognizes a playlist as an HLS or DASH manifest (structural floor only). HLS must
+    carry a `#EXTM3U` header line; DASH must carry an `<MPD` element. This proves SHAPE —
+    the file is a real manifest of the declared kind — deliberately NOT full conformance
+    (sequence monotonicity, part alignment, rendition switching), which is a sibling
+    component's job (llhls-certify) and must never be half-implemented inside the verifier."""
+    if not path or not os.path.exists(path):
+        return (False, "missing: %s" % path)
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception as e:
+        return (False, "cannot read manifest: %s" % e)
+    if not text.strip():
+        return (False, "manifest is empty")
+    is_hls = any(line.lstrip().startswith("#EXTM3U") for line in text.splitlines())
+    is_dash = "<MPD" in text
+    kind = "hls" if is_hls else ("dash" if is_dash else "unknown")
+    ok = is_hls or is_dash
+    return (ok, "manifest kind=%s (hls=%s dash=%s)" % (kind, is_hls, is_dash))
+
+
 STRUCTURAL = {
     "exists": _assert_exists,
     "non_empty": _assert_non_empty,
     "audio_valid": _assert_audio_valid,
+    "video_valid": _assert_video_valid,
+    "manifest_valid": _assert_manifest_valid,
     "json_valid": _assert_json_valid,
 }
 
@@ -329,6 +376,112 @@ def measure_stream(path):
         return sr, ch
     except Exception:
         return None, None
+
+
+def measure_video_stream(path):
+    """(width, height, fps_num, fps_den, codec) of the first video stream, each None-safe."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,avg_frame_rate,codec_name",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=120,
+        )
+        s = (json.loads(out.stdout or "{}").get("streams") or [{}])[0]
+        w = int(s["width"]) if s.get("width") else None
+        h = int(s["height"]) if s.get("height") else None
+        num = den = None
+        fr = s.get("avg_frame_rate")
+        if isinstance(fr, str) and "/" in fr:
+            try:
+                num, den = (int(x) for x in fr.split("/"))
+            except Exception:
+                num = den = None
+        codec = s.get("codec_name")
+        return w, h, num, den, codec
+    except Exception:
+        return None, None, None, None, None
+
+
+def measure_video_bitrate(path):
+    """Total bitrate in kbps via ffprobe format=bit_rate; falls back to size*8/duration/1000
+    when the container does not report bit_rate. Returns None on any error."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=bit_rate,duration,size",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=120,
+        )
+        fmt = (json.loads(out.stdout or "{}").get("format") or {})
+        br = float(fmt["bit_rate"]) / 1000.0 if fmt.get("bit_rate") else None
+        if br is not None and br > 0:
+            return br
+        dur = float(fmt.get("duration") or 0.0)
+        size = float(fmt.get("size") or 0.0)
+        if dur > 0 and size > 0:
+            return size * 8.0 / dur / 1000.0
+        return None
+    except Exception:
+        return None
+
+
+def measure_vmaf(source, output, model="version=vmaf_v0.6.1"):
+    """Mean VMAF of `output` scored against `source` via ffmpeg's libvmaf filter. Returns
+    None if libvmaf is unavailable or no score is produced — the caller turns None into a
+    NAMED failure, never a fabricated score.
+
+    Two output shapes are supported because libvmaf has two eras:
+      - new (log_fmt=json): a JSON blob on stdout with pooled_metrics.vmaf.mean.
+      - old: a plain `VMAF score: N.NNNN` line on stderr, and the `version=` filter option
+        may not exist (so a model string carrying it makes the filter reject the whole
+        invocation). We try JSON-with-model first, then fall back to the bare filter and the
+        text-score line."""
+    if not source or not os.path.exists(source):
+        return None
+    if not output or not os.path.exists(output):
+        return None
+
+    def _run(filterspec):
+        return subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner",
+             "-i", source, "-i", output,
+             "-lavfi", filterspec, "-f", "null", "-"],
+            capture_output=True, text=True, timeout=600,
+        )
+
+    # Pass 1: modern filter, JSON via the requested model.
+    try:
+        proc = _run("libvmaf=%s:log_fmt=json" % model)
+        blob = (proc.stdout or "") + (proc.stderr or "")
+        try:
+            data = json.loads((proc.stdout or "").strip() or "{}")
+        except Exception:
+            data = None
+        if data is not None:
+            mean = data.get("pooled_metrics") or {}
+            score = mean.get("vmaf") or {}
+            v = score.get("mean")
+            if v is not None:
+                return float(v)
+        m = re.search(r'"VMAF score"\s*:\s*([0-9.]+)|VMAF score:\s*([0-9.]+)', blob)
+        if m:
+            return float(m.group(1) or m.group(2))
+    except Exception:
+        pass
+
+    # Pass 2: old filter surface — bare `libvmaf`, text score on stderr.
+    try:
+        proc = _run("libvmaf")
+        blob = (proc.stdout or "") + (proc.stderr or "")
+        m = re.search(r'VMAF score:\s*([0-9.]+)', blob)
+        if m:
+            return float(m.group(1))
+    except Exception:
+        return None
+
+    return None
 
 
 def measure_mean_volume_db(path):
@@ -1126,6 +1279,161 @@ def check_content_hash_matches(pc, ctx, step_key, step_yaml, output_paths):
     return (ok, detail, measured)
 
 
+def check_video_duration_matches(pc, ctx, step_key, step_yaml, output_paths):
+    """Video analogue of audio_duration_matches: each listed output preserves the source
+    duration within frame tolerance."""
+    tol = float(pc.get("tolerance_s", pc.get("tolerance", 0.1)))
+    names = _resolve_stem_list(pc, ctx, step_key, "outputs")
+    src = _resolve_source(ctx, step_key, output_paths)
+    measured = {"tolerance_s": tol, "source": src}
+    src_dur = measure_duration(src)
+    measured["source_duration"] = src_dur
+    if src is None or src_dur is None or src_dur <= 0:
+        return (False, "could not measure source duration (%s)" % src, measured)
+    bad = []
+    per = {}
+    for n in names:
+        d = measure_duration(output_paths.get(n))
+        per[n] = d
+        if d is None or abs(d - src_dur) > tol:
+            bad.append("%s=%s" % (n, "n/a" if d is None else "%.3fs" % d))
+    measured["output_durations"] = per
+    ok = not bad
+    detail = "source=%.3fs; outputs within ±%.2fs → %s" % (
+        src_dur, tol, "ok" if ok else "MISMATCH " + ", ".join(bad))
+    return (ok, detail, measured)
+
+
+def check_video_vmaf_within(pc, ctx, step_key, step_yaml, output_paths):
+    """Measured VMAF vs. a declared target, within tolerance. The video mirror of
+    audio_lufs_within — measure independently, compare to target, fail on violation."""
+    out_name = pc.get("output", "primary_output")
+    path = output_paths.get(out_name)
+    tol = float(pc.get("tolerance", 1.0))
+    model = pc.get("vmaf_model", "version=vmaf_v0.6.1")
+    param = pc.get("target_param", "target_vmaf")
+    target, tsrc = resolve_target(ctx, step_key, step_yaml, param)
+    measured = {"target": target, "target_source": tsrc, "tolerance": tol, "model": model}
+    if not path or not os.path.exists(path):
+        return (False, "output '%s' missing" % out_name, measured)
+    src = _resolve_source(ctx, step_key, output_paths)
+    measured["source"] = src
+    if target is None:
+        return (False, "could not resolve target (%s)" % param, measured)
+    if not src or not os.path.exists(src):
+        return (False, "could not resolve source for VMAF scoring", measured)
+    val = measure_vmaf(src, path, model=model)
+    measured["measured_vmaf"] = val
+    if val is None:
+        return (False, "vmaf unavailable — libvmaf filter missing or no score produced "
+                       "(no fallback value is fabricated)", measured)
+    delta = abs(val - target)
+    measured["delta"] = round(delta, 3) if val == val else "inf"
+    ok = (val == val) and delta <= tol
+    detail = "measured %.2f VMAF vs target %.1f (±%.1f) → off by %s" % (
+        val, target, tol, measured["delta"])
+    return (ok, detail, measured)
+
+
+def check_video_bitrate_within(pc, ctx, step_key, step_yaml, output_paths):
+    """Measured bitrate (kbps) vs. a declared target, within a percentage band."""
+    out_name = pc.get("output", "primary_output")
+    path = output_paths.get(out_name)
+    pct = float(pc.get("tolerance_pct", 15.0))
+    param = pc.get("target_param", "target_bitrate_kbps")
+    target, tsrc = resolve_target(ctx, step_key, step_yaml, param)
+    measured = {"target": target, "target_source": tsrc, "tolerance_pct": pct}
+    if not path or not os.path.exists(path):
+        return (False, "output '%s' missing" % out_name, measured)
+    if target is None:
+        return (False, "could not resolve target (%s)" % param, measured)
+    br = measure_video_bitrate(path)
+    measured["measured_kbps"] = br
+    if br is None:
+        return (False, "could not measure bitrate of output", measured)
+    band = target * (pct / 100.0)
+    ok = abs(br - target) <= band
+    detail = "measured %.1f kbps vs target %.1f (±%.1f%%) → %s" % (
+        br, target, pct, "ok" if ok else "OUT OF BAND")
+    return (ok, detail, measured)
+
+
+def _manifest_segment_uris(path):
+    """Best-effort extraction of segment URIs from an HLS or DASH manifest. Returns a list
+    of URI strings. Simple and structural on purpose — conformance parsing lives elsewhere."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception:
+        return []
+    uris = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#") and ":" not in s.split(":")[0]:
+            uris.append(s)
+    # DASH SegmentTemplate/BaseURL media attrs are a secondary source; keep it structural.
+    for m in re.finditer(r'(?:media|initialization)="([^"]+)"', text):
+        uris.append(m.group(1))
+    return uris
+
+
+def check_manifest_segments_present(pc, ctx, step_key, step_yaml, output_paths):
+    """Every segment URI a manifest references exists and is non-empty when resolved against
+    base_dir. The integrity floor llhls-certify / serverless-transcode need. Reports the
+    FIRST missing/bad URI in detail."""
+    manifest_name = pc.get("manifest", "manifest")
+    manifest_path = output_paths.get(manifest_name)
+    base = pc.get("base_dir") or os.path.dirname(manifest_path) if manifest_path else None
+    measured = {"manifest": manifest_name}
+    if not manifest_path or not os.path.exists(manifest_path):
+        return (False, "manifest '%s' missing" % manifest_name, measured)
+    uris = _manifest_segment_uris(manifest_path)
+    measured["segments"] = len(uris)
+    if not uris:
+        return (False, "no segment URIs found in manifest (was it a real playlist?)", measured)
+    missing = []
+    for u in uris:
+        full = os.path.join(base, u) if base else u
+        if not os.path.exists(full):
+            missing.append(u)
+            continue
+        if os.path.getsize(full) == 0:
+            missing.append("%s (empty)" % u)
+    measured["missing"] = missing
+    ok = not missing
+    detail = "%d segments; %s" % (len(uris), "all present" if ok else "MISSING " + ", ".join(missing[:5]))
+    return (ok, detail, measured)
+
+
+def check_rendition_ladder_monotone(pc, ctx, step_key, step_yaml, output_paths):
+    """Across an ordered list of renditions (ascending resolution), quality must be
+    non-decreasing AND bitrate non-decreasing — a rung whose higher-res neighbor does not
+    strictly improve quality at higher bitrate is dominated/redundant. quality is VMAF by
+    default (uses the recorded per-rendition target when measurement is unavailable)."""
+    names = pc.get("renditions")
+    if not isinstance(names, list) or len(names) < 2:
+        return (False, "rendition_ladder_monotone needs >=2 renditions (list)", {})
+    quality_param = pc.get("quality_param", "target_vmaf")
+    measured = {"renditions": names}
+    prev_q = prev_b = None
+    violations = []
+    for i, n in enumerate(names):
+        path = output_paths.get(n)
+        q = measure_vmaf(_resolve_source(ctx, step_key, output_paths), path) if path else None
+        if q is None:
+            q = resolve_target(ctx, step_key, step_yaml, quality_param)[0]
+        b = measure_video_bitrate(path) if path else None
+        measured[n] = {"vmaf": q, "kbps": b}
+        if i > 0 and q is not None and prev_q is not None and q < prev_q:
+            violations.append("%s quality %.2f < %s %.2f" % (n, q, names[i-1], prev_q))
+        if i > 0 and b is not None and prev_b is not None and b < prev_b:
+            violations.append("%s bitrate %.0f < %s %.0f" % (n, b, names[i-1], prev_b))
+        prev_q, prev_b = q, b
+    ok = not violations
+    detail = "ladder monotone" if ok else "NON-MONOTONE: " + "; ".join(violations)
+    return (ok, detail, measured)
+
+
 POST_CHECKS = {
     "json_fields_within": check_json_fields_within,
     "audio_format_matches": check_audio_format_matches,
@@ -1133,6 +1441,11 @@ POST_CHECKS = {
     "audio_lufs_within": check_audio_lufs_within,
     "audio_peak_above": check_audio_peak_above,
     "audio_duration_matches": check_audio_duration_matches,
+    "video_duration_matches": check_video_duration_matches,
+    "video_vmaf_within": check_video_vmaf_within,
+    "video_bitrate_within": check_video_bitrate_within,
+    "manifest_segments_present": check_manifest_segments_present,
+    "rendition_ladder_monotone": check_rendition_ladder_monotone,
     "stems_recombine": check_stems_recombine,
     "acoustic_roundtrip": check_acoustic_roundtrip,
     "seed_record_verifies": check_seed_record_verifies,
