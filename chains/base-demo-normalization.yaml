@@ -1,0 +1,21 @@
+# Base x402 demo chain
+#
+# The paid MCP tool runs this deliberately small chain. The output is useful enough to
+# demonstrate the Workchain contract, but the surface area stays narrow for the first
+# hosted payment experiment.
+name: "Base x402 Demo: Verified Normalization"
+description: "Generate a deterministic tone, normalize it to -14 LUFS, and return only after Workchain verifies the output."
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  lufs_target: -14
+
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+      lra: 7
+      true_peak: -1.5

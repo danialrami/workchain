@@ -1,0 +1,49 @@
+# Component Definition — acoustic_decode
+# Recover a text payload from an audio recording that carries an over-the-air
+# audio-QR waveform. Wraps the @lufs/audioqr CLI (ggwave).
+
+name: acoustic_decode
+description: "Decode an over-the-air audio-QR waveform from an audio file back to text (ggwave via @lufs/audioqr)"
+version: "1.0"
+
+type: audio
+input_types:
+  - wav
+  - mp3
+  - aiff
+  - aif
+  - flac
+  - m4a
+  - ogg
+output_type: data
+
+params_schema:
+  expected:
+    type: string
+    default: ""
+    description: "Optional expected payload. When set, the step fails unless it is among the decoded results (turns decode into a verifiable assertion)."
+
+outputs:
+  schema_version: "1.0"
+  description: "The decoded payload(s) recovered from the input audio"
+  items:
+    - name: primary_output
+      type: json
+      description: "Decoded payloads: {decoded: [...], count, expected, match}"
+      required: true
+      mime_type: "application/json"
+      path_template: "output/{input_name}_decoded.json"
+
+requirements:
+  commands:
+    - audioqr
+
+# The central verifier confirms the sidecar is valid JSON carrying the decoded
+# payload. run.sh additionally fails honestly when nothing decodes, or when an
+# `expected` payload is supplied and not recovered.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, json_valid]
+      json_has: [decoded, count]

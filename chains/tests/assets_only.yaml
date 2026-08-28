@@ -1,0 +1,27 @@
+# Test Chain: Assets Only
+# Tests artwork and canvas generation without normalization/protection
+
+name: "Test: Assets Only"
+description: "Test chain for asset generation components"
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  saturation: 0.8
+
+steps:
+  - name: artwork_01
+    enabled: true
+    params:
+      saturation: 0.8
+      width: 1000
+      height: 1000
+
+  - name: canvas_01
+    enabled: true
+    params:
+      loop_count: 8
+
+  - name: catalog
+    enabled: true
+    params: {}

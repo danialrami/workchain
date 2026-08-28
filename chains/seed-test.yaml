@@ -1,0 +1,14 @@
+name: "Seed Test"
+description: "Mint a verifiable seed from a noise floor recording"
+version: "1.0"
+engine_version: "2.0"
+
+globals: {}
+
+steps:
+  - name: seed
+    enabled: true
+    params:
+      lsb_bits: 8
+      jitter: true
+      note: "test mint via workchain engine"

@@ -1,0 +1,29 @@
+name: "Archive Ingest"
+description: "Per-file archive-ingest: probe -> features -> hook -> embed -> archive_index. A fan-out analysis chain (each stage reads the original audio, emits sidecars). Idempotent + resumable; run once per file (batch driver) or per new lufs-recorder take (incremental)."
+version: "0.1"
+engine_version: "2.0"
+
+globals:
+  scope: "archive"
+  # archive_db is normally set via the ARCHIVE_DB env var by the batch driver so all
+  # files land in one shared index; falls back to <output_dir>/archive.db.
+
+steps:
+  - name: probe
+    enabled: true
+    params: {}
+  - name: features
+    enabled: true
+    params: {}
+  - name: hook
+    enabled: true
+    params:
+      hook_seconds: 3
+  - name: embed
+    enabled: true
+    params:
+      model: "melstats-v0"
+  - name: archive_index
+    enabled: true
+    params:
+      scope: "archive"

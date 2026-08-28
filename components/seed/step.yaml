@@ -1,0 +1,112 @@
+name: seed
+description: "Mint a verifiable, provenanced seed from a preamp noise-floor recording"
+version: "1.0"
+
+# Not an audio transform. Takes audio IN (the noise floor) and produces a
+# provenance record OUT, like `catalog` does.
+type: data
+
+input_types:
+  - wav
+
+output_type: data
+
+params_schema:
+  lsb_bits:
+    type: number
+    default: 8
+    description: "How many low bits of each sample to harvest. UNTUNED — the default is a conservative guess pending a mint from real hardware; the right value depends on the converter's actual noise floor."
+    range:
+      min: 1
+      max: 16
+
+  floor_max_dbfs:
+    type: number
+    default: -30
+    description: "Reject if peak is LOUDER than this — a signal is plugged in and you would be seeding from content, not noise"
+    range:
+      min: -120
+      max: 0
+
+  floor_min_dbfs:
+    type: number
+    default: -110
+    description: "Reject if peak is QUIETER than this — muted input or dead converter, so there is no thermal noise to harvest"
+    range:
+      min: -144
+      max: 0
+
+  min_duration_s:
+    type: number
+    default: 5
+    description: "Minimum recording length. 20-30s is recommended in practice: not for the entropy math (which has orders of magnitude of headroom) but to give the health tests a decent window and make the recording a keepable artifact."
+    range:
+      min: 1
+      max: 3600
+
+  min_entropy_bits:
+    type: number
+    default: 256
+    description: "Required assessed min-entropy from PHYSICAL sources. urandom is always mixed in but never counted."
+    range:
+      min: 128
+      max: 100000000
+
+  jitter:
+    type: boolean
+    default: true
+    description: "Also mix in CPU timing jitter. Optional; its absence is recorded in the seed record rather than hidden."
+
+  sign:
+    type: string
+    default: ""
+    description: "Path to an ed25519 signing key. Empty means mint unsigned (tier `verified`); a key promotes the seed to `certified`."
+
+  note:
+    type: string
+    default: ""
+    description: "A human note stored inside the signed payload (e.g. 'kitchen preamp, nothing plugged in')"
+
+outputs:
+  schema_version: "1.0"
+  description: "The signed seed record, plus a human-readable summary"
+  items:
+    - name: primary_output
+      type: json
+      description: "The seed record: per-source digests, health checks, entropy assessment, and signature"
+      required: true
+      mime_type: "application/json"
+      path_template: "seed/seed_record.json"
+
+    - name: summary
+      type: file
+      description: "Human-readable seed summary"
+      required: false
+      mime_type: "text/plain"
+      path_template: "seed/seed_info.txt"
+
+# ── Inbound contract (verified IN) ─────────────────────────────────────────────
+# `lufs-seed` is a separate entropy-source tool, exactly as
+# `audioqr` is for acoustic_encode. Preflight fails honestly if it is absent
+# rather than letting the step invent a seed.
+requirements:
+  commands:
+    - python3
+    - lufs-seed
+
+# ── Outbound contract (verified OUT) ────────────────────────────────────────────
+# The structural asserts prove a record was written. The post-condition is the one
+# that matters: it re-runs `lufs-seed verify` INDEPENDENTLY against the record AND
+# the source recording, so the enforcer never takes the component's word for the
+# seed. Same stance as acoustic_roundtrip re-decoding rather than trusting a sidecar.
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: primary_output
+      assert: [exists, non_empty, json_valid]
+      json_has: [payload]
+  post_conditions:
+    - id: seed_record_verifies
+      check: seed_record_verifies
+      output: primary_output
+      require_tier: verified

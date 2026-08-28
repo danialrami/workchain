@@ -333,13 +333,9 @@ fi
 # Cheap greps for the drift that embarrasses us publicly.
 say "8. Documentation sanity"
 # This script and PORTING.md legitimately name the strings they screen for.
-# Private component and repo names are screened by their full, distinctive forms.
-# A bare `embed` alternative was tried and removed: as a standalone token it matches
-# ordinary English -- "embed the engine", "to embed, run" -- so it cried wolf, and the
-# only way to keep it quiet was excluding LICENSING.md wholesale, which left a
-# public-facing file unscreened for hostnames and local paths as well. The word
-# "embed" on its own reveals nothing private; `embed_clap` does, and is matched.
-leaks=$(grep -rIl -E '\b(siku|klaxon|carnyx|tambora|kora|regalle|pandeiro|samvadini|sound-archive|agent-knowledge|archive-index|archive_index|archive-ingest|embed_clap)\b|100\.[0-9]+\.[0-9]+\.[0-9]+|exe\.xyz|lufshq\.com|/Users/|/home/[a-z]|yourusername|localhost:[0-9]{4}/[a-z]|danialrami/' \
+# Component and chain names are public API now; this gate screens the private hosts, local
+# checkouts, and personal configuration that must never leak into a portable release.
+leaks=$(grep -rIl -E '\b(siku|klaxon|carnyx|tambora|kora|regalle|pandeiro|samvadini)\b|100\.[0-9]+\.[0-9]+\.[0-9]+|exe\.xyz|lufshq\.com|/Users/|/home/[a-z]|yourusername|localhost:[0-9]{4}/[a-z]|danialrami/' \
     --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv . 2>/dev/null \
     | grep -vE '^\./(docs/PORTING\.md|tools/release-check\.sh|ci/README\.md)$' || true)
 if [[ -z "$leaks" ]]; then ok "no internal hostnames, tailnet addresses, private repo or personal config references"

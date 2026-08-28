@@ -135,6 +135,22 @@ All three parse and resolve through `lib/workchain_yaml.py`. There is no fourth 
 adding one is the architectural mistake this layout exists to prevent — three interfaces that
 disagree about what a chain means are three different products.
 
+## Base-native x402 demo
+
+`demo/x402-mcp/` is the first hosted-payment slice: a Cloudflare Agents SDK Worker exposes one
+paid `render_verified_demo` MCP tool, defaults to Base mainnet USDC, and calls a separate
+Workchain origin. The origin generates a deterministic fixture, runs
+`chains/base-demo-normalization.yaml`, and returns only when every step's `verification.verified`
+record is true. The Worker never turns a non-zero origin result or an unverified context into a
+paid success.
+
+Run the origin locally with `python3 demo/x402-mcp/origin/src/server.py`. The Worker deployment
+and a screen-shareable buyer live in `demo/x402-mcp/worker/` and `demo/x402-mcp/client/`. Base
+Sepolia is the explicit fallback for the first funded test; the production configuration is
+`eip155:8453`. The repository contains the code and dry-run validation, not a fabricated mainnet
+receipt — deployment still requires a configured Cloudflare account, recipient wallet, reachable
+origin, and an intentional funded buyer.
+
 ## Built for agents, on purpose
 
 `--json` on everything. NDJSON progress on stderr, final JSON on stdout. Schema-validated
@@ -160,6 +176,11 @@ workchain run deliverable-voice in.wav -o ./out --json
 
 Requires Node 18+, Python 3.10+, and ffmpeg. The light components need nothing else — no venv,
 no model weights, no native toolchain.
+
+This fork also carries the verified asset/archive additions from the personal tree: acoustic
+encode/decode, catalog, artwork, Canvas, probing, feature extraction, hook clips, melstats and
+CLAP embeddings, protection, seed, and the archive-ingest chains. Heavy components still declare
+their own runtime requirements; `workchain doctor` is the honest machine-specific report.
 
 Write your own:
 

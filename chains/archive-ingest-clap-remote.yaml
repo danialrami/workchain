@@ -1,0 +1,37 @@
+name: "Archive Ingest (CLAP, remote)"
+description: "The library-scale ingest chain: identical to archive-ingest-clap, but the embed step ships decoded 48k mono PCM to a resident-model serve-embed endpoint instead of loading the ~2GB checkpoint per file. Needs NO local .venv, no torch, no checkpoint — only python3 + ffmpeg — because the model lives on the server. Point EMBED_CLAP_ENDPOINT at 127.0.0.1:8770 (the ingest host, resident locally) or at the GPU host's tailnet IP (CUDA); nothing else in the chain changes."
+version: "0.1"
+engine_version: "2.0"
+
+globals:
+  scope: "archive"
+
+steps:
+  - name: probe
+    enabled: true
+    params: {}
+  - name: features
+    enabled: true
+    params: {}
+  - name: hook
+    enabled: true
+    params:
+      hook_seconds: 3
+  - name: embed_clap
+    enabled: true
+    params:
+      model: "laion-clap-630k"
+      # `remote`, not `auto`: at library scale a silent fallback to the per-file
+      # checkpoint load is the failure we are here to eliminate, so an unreachable
+      # endpoint must stop the run loudly rather than quietly take the slow path.
+      backend: "remote"
+      # Empty -> $EMBED_CLAP_ENDPOINT. Set the env var rather than editing this file,
+      # so moving the ingest host -> the GPU host is a deploy detail, not a chain edit.
+      endpoint: ""
+      timeout_s: 120
+      retries: 2
+  - name: archive_index
+    enabled: true
+    params:
+      scope: "archive"
+hive"

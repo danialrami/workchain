@@ -1,0 +1,36 @@
+# Astro Catalog Chain
+# Prep audio files for Astro
+
+name: "Astro Catalog"
+description: "Prep audio files for Astro"
+version: "1.0"
+engine_version: "2.0"
+
+globals:
+  lufs_target: -14
+  saturation: 0.5
+
+steps:
+  - name: normalization
+    enabled: true
+    params:
+      target_lufs: -14
+      two_pass: true
+      lra: 7
+      true_peak: -1.5
+
+  - name: artwork_01
+    enabled: true
+    params:
+      saturation: 0.5
+      width: 1000
+      height: 1000
+
+  - name: canvas_01
+    enabled: true
+    params:
+      loop_count: 8
+
+  - name: catalog
+    enabled: true
+    params: {}

@@ -7,7 +7,8 @@
 > through.
 
 LUFS Workchain turns audio production steps (LUFS normalization, stem separation,
-format conversion, quality benchmarking, content-hash cataloging, spectral transformation)
+format conversion, quality benchmarking, content-hash cataloging, spectral transformation, asset
+and archive ingest)
 into composable units an agent can orchestrate. The filesystem under `components/` IS the
 registry — one folder per component (`step.yaml` + `run.sh` + `README.md`).
 
@@ -61,12 +62,19 @@ A green exit code is not success. Every component declares:
 - `docs/faq.md` — frequently asked questions, by audience (operators, authors, agents)
 - `docs/troubleshooting.md` — common failures and how to fix them
 - `docs/README.md` — full Diátaxis map and per-audience reading paths
+- `docs/PORTING.md` — provenance and repairs for the personal component port
 - `docs/PUBLISHING.md` — npm publishing procedure
 - `docs/README.md` — full Diátaxis map and per-audience reading paths
 - `README.md` — overview, architecture, quickstart
 - `AGENTS.md` — contract model, build commands, conventions for coding agents
 - `docs/format.md` — canonical chain and step.yaml file format specification
 - `docs/PUBLISHING.md` — npm publishing procedure
+
+## Hosted payment demo
+
+- `demo/x402-mcp/worker/README.md` — Cloudflare paid MCP edge, Base network, secrets, and deploy gate
+- `demo/x402-mcp/origin/README.md` — fail-closed Workchain execution origin
+- `demo/x402-mcp/client/README.md` — recordable x402 buyer and explicit payment approval
 
 ## Start here (agent discovery in 5 calls)
 

@@ -1,0 +1,39 @@
+name: setup
+description: "Prerequisite checker - Python, uv, ffmpeg, npm"
+version: "1.0"
+
+type: system
+
+params_schema:
+  check_only:
+    type: boolean
+    default: false
+    description: "Only check prerequisites without running uv sync"
+
+# Outputs Schema (version 1.0)
+# Defines what this component produces and how it appears in context.json
+#
+# Note: Setup is a system-type component that verifies the runtime environment.
+# It produces metadata about the system rather than a file output.
+
+outputs:
+  schema_version: "1.0"
+  description: "Environment setup results (tool versions, failure count, etc.)"
+  items:
+    - name: environment
+      type: json
+      description: "Prerequisite check status and metadata"
+      required: true
+      path_template: "logs/setup.json"
+
+verify:
+  schema_version: "1.0"
+  outputs:
+    - name: environment
+      assert: [exists, non_empty, json_valid]
+      json_has: [status, failures, check_only]
+
+requirements:
+  commands:
+    - python3
+    - uv
