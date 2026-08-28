@@ -1,8 +1,7 @@
 # Spec — add video/manifest/VMAF assertion primitives to the workchain verifier
 
-State: fork `danialrami/workchain` @ `fb82746` (this is the workchain fork Daniel
-maintains; migrate to `lufs-audio/workchain` upstream when ready). The verifier is
-`lib/workchain_verify.py` (60 KB).
+State: this workchain fork @ `fb82746` (the staging home; migrate upstream when ready).
+The verifier is `lib/workchain_verify.py` (60 KB).
 
 ## Problem
 

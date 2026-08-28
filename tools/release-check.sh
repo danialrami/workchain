@@ -314,6 +314,14 @@ else
     skip "Node/Python registry cross-check (run: cd cli && npm install)"
 fi
 
+# Video/manifest verifier primitives — red/green proof, stdlib + ffmpeg only. Runs on the
+# bare light path (no npm, no venv), so it is a real gate, not a skip.
+if python3 tests/test_video_primitives.py >"$WORK/video-primitives.txt" 2>&1; then
+    ok "verifier video/manifest primitives"
+else
+    bad "verifier video/manifest primitives FAILED (see $WORK/video-primitives.txt)"
+fi
+
 if [[ -d cli/node_modules ]]; then
     if (cd cli && npm test >"$WORK/npm-test.txt" 2>&1); then ok "cli npm test"
     else bad "cli npm test failed (see $WORK/npm-test.txt)"; fi
